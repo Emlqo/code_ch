@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #1f2937;
+  background: #f4f8fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 165, 233, 0.06) 1px, transparent 1px),
+    radial-gradient(circle at 20% 0%, rgba(125, 211, 252, 0.35), transparent 28rem),
+    #f4f8fb;
+  background-size:
+    24px 24px,
+    24px 24px,
+    auto,
+    auto;
+}
+
+button {
+  font: inherit;
+}
+
+@layer components {
+  .pixel-card {
+    @apply rounded-xl border border-slate-200/90 bg-white/95 shadow-panel backdrop-blur;
+  }
+
+  .pixel-card-strong {
+    @apply rounded-xl border-2 border-slate-800 bg-white shadow-[0_8px_0_rgba(15,23,42,0.12),0_22px_45px_rgba(15,23,42,0.12)];
+  }
+
+  .pixel-button {
+    @apply rounded-lg border-2 border-slate-800 bg-white px-4 py-3 font-black text-slate-800 shadow-[0_5px_0_rgba(15,23,42,0.18)] transition hover:-translate-y-0.5 hover:bg-sky-50 active:translate-y-1 active:shadow-[0_2px_0_rgba(15,23,42,0.18)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0;
+  }
+
+  .stat-tile {
+    @apply rounded-lg border border-slate-200 bg-white px-3 py-2 text-center shadow-sm;
+  }
+}
+
+@keyframes paint-pop {
+  0% {
+    transform: scale(0.84);
+    filter: saturate(0.8);
+  }
+  65% {
+    transform: scale(1.08);
+    filter: saturate(1.18);
+  }
+  100% {
+    transform: scale(1);
+    filter: saturate(1);
+  }
+}
+
+@keyframes soft-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+.paint-pop {
+  animation: paint-pop 320ms ease-out;
+}
+
+.soft-pulse {
+  animation: soft-pulse 1.4s ease-in-out infinite;
+}
