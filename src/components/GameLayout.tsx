@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { stages } from '../data/stages';
 import { applyMove, countPaintedTargets, countTargetCells, createBoard, paintCell } from '../engine/boardEngine';
 import { buildExecutionQueueWithConditions, collectColorCluePositionKeys, getConditionEvaluations, validateCode } from '../engine/codeParser';
 import { checkInput } from '../engine/inputEngine';
 import { calculateFinalScore, calculateInputScore, calculateStars } from '../engine/scoreEngine';
 import { useKeyboardInput } from '../hooks/useKeyboardInput';
+import type { CodeDisplayMode } from '../types/admin';
 import type { BoardCell, Direction, ExecutionLogEntry, GameProgress, GameStatus, PaintedCell, Stage } from '../types/game';
 import { CodePanel } from './CodePanel';
 import { ControlGuide } from './ControlGuide';
@@ -16,7 +16,9 @@ import { StageInfo } from './StageInfo';
 import { VirtualDPad } from './VirtualDPad';
 
 interface GameLayoutProps {
+  stages: Stage[];
   selectedStageId: number;
+  codeDisplayMode: CodeDisplayMode;
   onBackToStageSelect: () => void;
   onSelectStage: (stageId: number) => void;
   onStageClear: (stageId: number, stars: number, mistakes: number, bestCombo: number) => void;
@@ -66,7 +68,14 @@ function getPaintedPositionKeys(progress: GameProgress): string[] {
   return progress.paintedCells.map((cell) => positionKey(cell.position.row, cell.position.col));
 }
 
-export function GameLayout({ selectedStageId, onBackToStageSelect, onSelectStage, onStageClear }: GameLayoutProps) {
+export function GameLayout({
+  stages,
+  selectedStageId,
+  codeDisplayMode,
+  onBackToStageSelect,
+  onSelectStage,
+  onStageClear,
+}: GameLayoutProps) {
   const stageIndex = Math.max(
     stages.findIndex((stage) => stage.id === selectedStageId),
     0,
@@ -455,12 +464,15 @@ export function GameLayout({ selectedStageId, onBackToStageSelect, onSelectStage
               paintedPositions={paintedPositions}
               colorCluePositions={colorCluePositions}
               isAnimating={isAnimating}
+              isInputDisabled={controlsDisabled}
+              onDirectionInput={handleDirectionInput}
             />
           </div>
 
           <aside className="grid min-w-0 content-start gap-4 sm:gap-5">
             <CodePanel
               code={currentStage.code}
+              codeDisplayMode={codeDisplayMode}
               currentCommandIndex={progress.currentCommandIndex}
               completedCommandIndexes={completedCommandIndexes}
               errorCommandIndex={errorCommandIndex}
@@ -470,9 +482,6 @@ export function GameLayout({ selectedStageId, onBackToStageSelect, onSelectStage
               activeParentInfo={currentCommand?.parentInfo}
               conditionEvaluations={conditionEvaluations}
             />
-            <div className="lg:hidden">
-              <VirtualDPad onDirectionInput={handleDirectionInput} status={progress.status} />
-            </div>
             <ResultPanel
               message={progress.message}
               status={progress.status}

@@ -29,6 +29,9 @@ export interface BoardCell {
 
 /** 조건문에서 판정할 수 있는 조건 이름입니다. */
 export type ConditionType =
+  | 'currentTileIsYellow'
+  | 'currentTileIsBlue'
+  | 'currentTileIsRed'
   | 'nextTileIsBlue'
   | 'nextTileIsRed'
   | 'nextTileIsYellow'
@@ -101,7 +104,7 @@ export interface ExecutionLogEntry {
 }
 
 /** 스테이지 난이도 표시용 값입니다. */
-export type StageDifficulty = '입문' | '기초' | '도전';
+export type StageDifficulty = '입문' | '기초' | '도전' | '어려움 입문' | '어려움' | '매우 어려움' | '최종 문제';
 
 /** 체크포인트를 어떤 방식으로 검사할지 나타냅니다. */
 export type CheckpointMode = 'retryCurrent' | 'resetToStart' | 'failImmediately' | 'checkpoint';

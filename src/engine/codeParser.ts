@@ -5,7 +5,7 @@ export interface DisplayCodeLine {
   id: string;
   text: string;
   depth: number;
-  nodeType: CodeNode['type'] | 'else';
+  nodeType: CodeNode['type'] | 'else' | 'block';
   commandIndex?: number;
   description?: string;
 }
@@ -54,6 +54,9 @@ const moveDescription: Record<Direction, string> = {
 };
 
 const conditionText: Record<ConditionType, string> = {
+  currentTileIsYellow: 'CURRENT TILE IS YELLOW',
+  currentTileIsBlue: 'CURRENT TILE IS BLUE',
+  currentTileIsRed: 'CURRENT TILE IS RED',
   nextTileIsBlue: 'NEXT TILE IS BLUE',
   nextTileIsRed: 'NEXT TILE IS RED',
   nextTileIsYellow: 'NEXT TILE IS YELLOW',
@@ -62,6 +65,9 @@ const conditionText: Record<ConditionType, string> = {
 };
 
 const conditionDescription: Record<ConditionType, string> = {
+  currentTileIsYellow: '현재 캐릭터가 밟고 있는 칸이 노란색인지 확인합니다.',
+  currentTileIsBlue: '현재 캐릭터가 밟고 있는 칸이 파란색인지 확인합니다.',
+  currentTileIsRed: '현재 캐릭터가 밟고 있는 칸이 빨간색인지 확인합니다.',
   nextTileIsBlue: '지정한 방향의 다음 칸이 파란색인지 확인합니다.',
   nextTileIsRed: '지정한 방향의 다음 칸이 빨간색인지 확인합니다.',
   nextTileIsYellow: '지정한 방향의 다음 칸이 노란색인지 확인합니다.',
@@ -69,7 +75,12 @@ const conditionDescription: Record<ConditionType, string> = {
   pathIsOpen: '지정한 방향으로 이동할 수 있는지 확인합니다.',
 };
 
-const colorConditions: ReadonlySet<ConditionType> = new Set(['nextTileIsBlue', 'nextTileIsRed', 'nextTileIsYellow']);
+const currentTileColorConditions: ReadonlySet<ConditionType> = new Set([
+  'currentTileIsYellow',
+  'currentTileIsBlue',
+  'currentTileIsRed',
+]);
+const nextTileColorConditions: ReadonlySet<ConditionType> = new Set(['nextTileIsBlue', 'nextTileIsRed', 'nextTileIsYellow']);
 
 function isDirection(value: string): value is Direction {
   return validDirections.includes(value as Direction);
@@ -106,8 +117,22 @@ export function evaluateCondition(
   board: BoardCell[][],
 ): boolean {
   const nextPosition = getNextPosition(position, checkDirection);
+  const currentCell = isInsideBoard(position, board) ? board[position.row][position.col] : undefined;
+  const currentColor = getCellColor(currentCell);
   const nextCell = isInsideBoard(nextPosition, board) ? board[nextPosition.row][nextPosition.col] : undefined;
   const nextColor = getCellColor(nextCell);
+
+  if (condition === 'currentTileIsBlue') {
+    return isBlue(currentColor);
+  }
+
+  if (condition === 'currentTileIsRed') {
+    return isRed(currentColor);
+  }
+
+  if (condition === 'currentTileIsYellow') {
+    return isYellow(currentColor);
+  }
 
   if (condition === 'nextTileIsBlue') {
     return isBlue(nextColor);
@@ -129,6 +154,10 @@ export function evaluateCondition(
 }
 
 function getConditionDisplayText(condition: ConditionType, checkDirection: Direction, result: boolean): string {
+  if (currentTileColorConditions.has(condition)) {
+    return `현재 칸이 ${conditionText[condition]}인가요? → ${result ? '예' : '아니요'}`;
+  }
+
   return `${directionLabel[checkDirection]} 칸이 ${conditionText[condition]}인가요? → ${result ? '예' : '아니요'}`;
 }
 
@@ -250,7 +279,11 @@ export function collectColorCluePositionKeys(code: CodeNode[], currentPosition: 
       const checkDirection = node.checkDirection ?? 'right';
       const cluePosition = getNextPosition(nextPosition, checkDirection);
 
-      if (colorConditions.has(node.condition) && isInsideBoard(cluePosition, board)) {
+      if (currentTileColorConditions.has(node.condition) && isInsideBoard(nextPosition, board)) {
+        clueKeys.add(`${nextPosition.row}-${nextPosition.col}`);
+      }
+
+      if (nextTileColorConditions.has(node.condition) && isInsideBoard(cluePosition, board)) {
         clueKeys.add(`${cluePosition.row}-${cluePosition.col}`);
       }
 

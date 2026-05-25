@@ -5,6 +5,7 @@ interface StageSelectProps {
   stages: Stage[];
   progressByStageId: StageProgressMap;
   onSelectStage: (stageId: number) => void;
+  onOpenAdminPage: () => void;
 }
 
 function groupStagesByChapter(stages: Stage[]): Record<string, Stage[]> {
@@ -22,7 +23,7 @@ function renderStars(stars: number) {
   ));
 }
 
-export function StageSelect({ stages, progressByStageId, onSelectStage }: StageSelectProps) {
+export function StageSelect({ stages, progressByStageId, onSelectStage, onOpenAdminPage }: StageSelectProps) {
   const chapters = groupStagesByChapter(stages);
   const clearedCount = Object.values(progressByStageId).filter((progress) => progress.cleared).length;
   const isUnlocked = (stage: Stage) => {
@@ -52,8 +53,13 @@ export function StageSelect({ stages, progressByStageId, onSelectStage }: StageS
                 의사코드를 읽고 방향키를 입력해 픽셀 그림을 완성하세요. 순차, 반복, 조건을 스테이지별로 익힙니다.
               </p>
             </div>
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
-              클리어 {clearedCount}/{stages.length}
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
+                클리어 {clearedCount}/{stages.length}
+              </div>
+              <button type="button" onClick={onOpenAdminPage} className="pixel-button text-sm">
+                관리자 페이지
+              </button>
             </div>
           </div>
           <div className="h-2 bg-gradient-to-r from-sky-400 via-emerald-400 to-amber-300" />
