@@ -3,6 +3,7 @@ import { formatCodeForDisplay } from '../../engine/codeFormatter';
 import type { CodeDisplayMode } from '../../types/admin';
 import type { Stage } from '../../types/game';
 import { toStageOrderId } from '../../utils/stageOrder';
+import { BattleRoomContainer } from '../battle/BattleRoomContainer';
 import { StageCodeDisplayManager } from './StageCodeDisplayManager';
 import { StageOrderManager } from './StageOrderManager';
 
@@ -37,6 +38,7 @@ export function AdminPage({
   onResetStageCodeDisplayModes,
 }: AdminPageProps) {
   const [selectedStageId, setSelectedStageId] = useState(stages[0]?.id ?? 0);
+  const [showBattleRoomAdmin, setShowBattleRoomAdmin] = useState(false);
   const [statusMessage, setStatusMessage] = useState('설정을 변경하면 이곳에 저장 상태가 표시됩니다.');
   const selectedStage = stages.find((stage) => stage.id === selectedStageId) ?? stages[0];
   const selectedStageOrderId = selectedStage ? toStageOrderId(selectedStage.id) : '';
@@ -83,6 +85,10 @@ export function AdminPage({
     setStatusMessage('코드 표시 방식 설정이 초기화되었습니다.');
   };
 
+  if (showBattleRoomAdmin) {
+    return <BattleRoomContainer mode="admin" onExit={() => setShowBattleRoomAdmin(false)} />;
+  }
+
   return (
     <main className="min-h-screen px-4 py-6 text-slate-900 sm:px-6 lg:px-8">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
@@ -114,6 +120,19 @@ export function AdminPage({
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
             {statusMessage}
           </div>
+        </section>
+
+        <section className="pixel-card grid gap-4 p-5 sm:p-6 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-sky-700">Code Run Battle</p>
+            <h2 className="mt-1 text-2xl font-black text-slate-950">코드런 배틀룸 관리</h2>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+              방 만들기와 지난 배틀 기록은 학생 화면에서 숨기고, 관리자 페이지에서만 사용할 수 있습니다.
+            </p>
+          </div>
+          <button type="button" onClick={() => setShowBattleRoomAdmin(true)} className="pixel-button w-fit">
+            배틀룸 관리 열기
+          </button>
         </section>
 
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] xl:items-start">

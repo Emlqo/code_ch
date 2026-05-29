@@ -14,10 +14,12 @@ import { applyStageOrder, getStageOrderIds, toStageOrderId } from '../utils/stag
 import { getStageProgress, saveStageResult, type StageProgressMap } from '../utils/storage';
 import { AdminLogin } from './admin/AdminLogin';
 import { AdminPage } from './admin/AdminPage';
+import { BattleRoomContainer } from './battle/BattleRoomContainer';
+import { ChallengeContainer } from './challenge/ChallengeContainer';
 import { GameLayout } from './GameLayout';
 import { StageSelect } from './StageSelect';
 
-type Screen = 'stageSelect' | 'game' | AdminScreen;
+type Screen = 'stageSelect' | 'game' | 'challenge' | 'battleRoom' | AdminScreen;
 
 export function GameContainer() {
   const [screen, setScreen] = useState<Screen>('stageSelect');
@@ -95,9 +97,19 @@ export function GameContainer() {
         stages={orderedStages}
         progressByStageId={progressByStageId}
         onSelectStage={startStage}
+        onOpenChallenge={() => setScreen('challenge')}
+        onOpenBattleRoom={() => setScreen('battleRoom')}
         onOpenAdminPage={() => setScreen('adminLogin')}
       />
     );
+  }
+
+  if (screen === 'challenge') {
+    return <ChallengeContainer onExit={() => setScreen('stageSelect')} />;
+  }
+
+  if (screen === 'battleRoom') {
+    return <BattleRoomContainer mode="student" onExit={() => setScreen('stageSelect')} />;
   }
 
   if (screen === 'adminLogin') {

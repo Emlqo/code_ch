@@ -456,7 +456,7 @@ export function GameLayout({
           currentRepeatInfo={currentCommand?.parentInfo}
         />
 
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(560px,640px)_minmax(340px,420px)] lg:items-start lg:justify-center lg:gap-4 xl:grid-cols-[minmax(620px,700px)_minmax(360px,420px)]">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(480px,600px)_minmax(460px,1fr)] lg:items-start lg:gap-4 xl:grid-cols-[minmax(520px,660px)_minmax(560px,1fr)]">
           <div className="min-w-0 lg:flex lg:justify-end">
             <GameBoard
               board={board}
@@ -481,6 +481,7 @@ export function GameLayout({
               errorSourceLineId={errorSourceLineId}
               activeParentInfo={currentCommand?.parentInfo}
               conditionEvaluations={conditionEvaluations}
+              enableLineHighlight
             />
             <ResultPanel
               message={progress.message}

@@ -1,183 +1,154 @@
 # Handoff
 
-## 프로젝트 개요
+## 2026-05-28 Firebase Battle Room Status
 
+Code Run Battle Room now has two interchangeable services behind `battleRoomService`.
+
+- Default import for components: `src/services/battleRoom/battleRoomService.ts`
+- Factory: `src/services/battleRoom/battleRoomServiceFactory.ts`
+- Firebase client: `src/services/firebase/firebaseClient.ts`
+- Firebase implementation: `src/services/battleRoom/firebaseBattleRoomService.ts`
+- Local fallback: `src/services/battleRoom/localBattleRoomService.ts`
+
+Service selection:
+
+- Uses Firebase only when `VITE_USE_FIREBASE === "true"` and all required Firebase env values are present.
+- Falls back to localStorage mock when Firebase is disabled, missing config, or Firebase app initialization fails.
+- Development console logs show `[BattleRoomService] using firebase` or `[BattleRoomService] using local mock`.
+
+Firestore collections:
+
+```text
+rooms/{roomId}
+rooms/{roomId}/participants/{participantId}
+roomHistory/{roomId}
+```
+
+Current Firebase implementation supports:
+
+- `createRoom`
+- `getRoomByCode`
+- `joinRoom`
+- `leaveRoom`
+- `startRoom`
+- `finishRoom`
+- `updateParticipantScore`
+- `subscribeRoom`
+- `subscribeParticipants`
+- `getRoomHistory`
+
+Important notes:
+
+- Firestore writes are cleaned to remove `undefined` values before saving.
+- Snapshot subscription errors are handled with safe callbacks and dev warnings.
+- Security rules are not applied in code. Rules planning document is `docs/firebase-firestore-rules-draft.md`.
+- Real browser QA still needs actual `.env.local` Firebase config and `VITE_USE_FIREBASE=true`.
+- After Firebase QA, check Firebase console for `rooms`, nested `participants`, and `roomHistory`.
+
+## 프로젝트 개요
 - 프로젝트 이름: 코드 드로잉 챌린지
-- 목적: 중학생이 코드 실행 흐름을 픽셀 보드와 캐릭터 이동으로 이해하도록 돕는 교육용 웹게임
-- 대상 사용자: 중학생, 정보/코딩 수업 학습자
-- 핵심 게임 방식: 오른쪽 의사코드를 읽고 방향키 또는 가상 방향키를 입력하면 왼쪽 보드에서 캐릭터가 이동한다. 캐릭터가 지나간 칸이 색칠되고, 모든 명령을 정확히 실행하면 그림이 완성된다.
+- 목적: 중학생이 방향 입력, 순차 실행, 반복문, 조건문을 게임으로 익히는 교육용 웹게임
+- 대상 사용자: 중학생, 정보/코딩 수업 교사
+- 핵심 게임 방식: 코드를 읽고 방향키, 가상 방향키, 보드 터치로 캐릭터를 움직인다. 스테이지 모드에서는 그림을 완성하고, 코드런 모드에서는 제한 시간 동안 코스를 완주한다.
 
 ## 기술 스택
-
 - React
 - TypeScript
 - Vite
 - Tailwind CSS
 - localStorage
 - Vercel 배포 예정
+- Firebase Firestore 연결 예정, 현재는 config 없이 local mock service 사용
 
-## 현재 폴더 구조
-
+## 현재 폴더 구조 요약
 ```text
 src/
-  App.tsx
-  main.tsx
-  styles.css
-  types/
-    game.ts
-    admin.ts
-  data/
-    stages.ts
-  engine/
-    boardEngine.ts
-    codeParser.ts
-    codeFormatter.ts
-    inputEngine.ts
-    scoreEngine.ts
-  hooks/
-    useKeyboardInput.ts
-  utils/
-    direction.ts
-    adminStorage.ts
-    stageOrder.ts
-    stageValidator.ts
-    storage.ts
   components/
+    admin/
+    battle/
+    challenge/
     GameContainer.tsx
     GameLayout.tsx
-    GameBoard.tsx
-    CodePanel.tsx
-    StageInfo.tsx
     StageSelect.tsx
-    ControlGuide.tsx
-    VirtualDPad.tsx
-    ResultPanel.tsx
-    HintPanel.tsx
-    ExecutionLog.tsx
-    admin/
-      AdminLogin.tsx
-      AdminPage.tsx
-      StageOrderManager.tsx
-      StageCodeDisplayManager.tsx
+  data/stages.ts
+  engine/
+  hooks/useKeyboardInput.ts
+  services/
+    battleRoom/
+    firebase/
+  types/
+    admin.ts
+    battleRoom.ts
+    challenge.ts
+    game.ts
+  utils/
 ```
 
-프로젝트 루트에는 `README.md`, `.gitignore`, `package.json`, `tailwind.config.js`, `postcss.config.js`, `tsconfig` 파일들이 있다.
-
 ## 현재 구현된 기능
-
-- React + TypeScript + Vite + Tailwind CSS 기본 앱
-- 스테이지 선택 화면
-- 스테이지 학습 모드
-- 5개 챕터, 30개 스테이지 데이터
-- `solutionInput` 기반 개발 검증 데이터
-- 스테이지 데이터 검증 유틸
-- 픽셀 보드 렌더링
-- 정답 경로 미리보기 숨김
-- IF 조건 색 단서 표시
-- 캐릭터 이동 및 색칠
-- 코드 패널
-- move, FOR, IF 코드 표시
-- FOR 반복 parentInfo 표시
-- IF 조건 평가 결과 표시
-- 방향키/WASD 입력
-- 모바일 가상 방향키
-- 입력 정답/오답 판정
-- 보드 밖/벽 이동 판정
-- 점수, 콤보, 별점
-- 실행 로그
-- 힌트 시스템
-- 성공/실패 결과 화면
-- localStorage 기반 스테이지 진행 저장
-- 스테이지 해금
-- 27~30번 대형 심화 스테이지
-- `currentTileIsYellow`, `currentTileIsBlue`, `currentTileIsRed` 색상 조건
-- `nextTileIsBlue`, `nextTileIsYellow` 기반 후반부 IF/ELSE 스테이지
-- 관리자 로그인 화면
-- 관리자 비밀번호 `0327` 기반 임시 입장 처리
-- 관리자 페이지 스테이지 순서 변경 및 localStorage 저장
-- 관리자 페이지 스테이지별 코드 표시 방식 설정 및 localStorage 저장
-- `pseudocode` / `cStyle` 코드 표시 포맷터
-- 관리자 페이지 선택 스테이지 코드 미리보기
-- 게임 화면 `CodePanel`의 관리자 코드 표시 방식 반영
-- 개발 모드 콘솔 스테이지 검증
-- README와 배포 기본 설명
+- 스테이지 학습 모드 1~30번
+- 방향키, WASD, VirtualDPad, 모바일 보드 터치 입력
+- 한글 블록 코드, pseudocode, cStyle 코드 표시
+- 관리자 로그인과 스테이지 순서/코드 표시 방식 설정
+- 코드런 개인 챌린지 모드
+- 코드런 개인 기록 저장과 기록 보기
+- 코드런 배틀룸 진입
+- 교사용 배틀룸 생성
+- 학생 입장 코드 참여
+- 배틀 대기실과 참여자 목록
+- 교사 시작 버튼
+- 학생 배틀 플레이 화면
+- `room.currentSeed` 기반 동일 문제 생성
+- 참가자 점수 업데이트
+- 실시간 랭킹 화면
+- 시간 종료 시 자동 방 종료
+- 배틀 히스토리 저장과 지난 기록 보기
+- Firebase 연결 준비용 placeholder/factory 구조
 
 ## 아직 구현되지 않은 기능
-
-- 5분 코드 챌린지 모드
-- 챌린지 전용 타입
-- 챌린지 문제 생성 엔진
-- 챌린지 준비 화면
-- 챌린지 플레이 화면
-- 5분 타이머
-- 챌린지 점수/콤보/정확도 계산
-- 챌린지 결과 화면
-- 오늘의 챌린지 날짜 seed
-- 결과 공유 코드
-- 챌린지 기록 화면
-- 챌린지 localStorage 저장
-- 큰 보드용 카메라/뷰포트 이동
-- 체크포인트 모드 정식 구현
+- Firebase Firestore 실제 연결
+- 교사용 실시간 관리 화면 고도화
+- 배틀룸 실제 다중 브라우저 수동 QA
+- 배틀룸 기록 삭제 기능
+- 배틀룸 화면별 세부 모바일 QA
 
 ## 최근 작업 상태
+코드런 배틀룸 기능을 localStorage mock service 기준으로 최종 점검했다. `npm run build`는 통과했다. Firebase 관련 파일은 import-safe placeholder 구조이며 실제 `firebase/*` 패키지를 import하지 않는다.
 
-최근 작업은 배포 전 안정화와 인수인계 문서 시스템 구축이다. 그 직전에는 스테이지 학습 모드 리팩토링, 키보드 입력 hook 분리, `GameContainer` 분리, 스테이지 검증 유틸 추가, README/.gitignore 배포 점검이 진행되었다.
-
-현재 코드 기준으로 스테이지 학습 모드는 기본 플레이가 가능한 상태다. 최근 작업은 27~30번 후반부 심화 스테이지 교체와 색상 조건 확장이다. 27~30번은 25~26번처럼 더 큰 픽셀 보드를 사용하며, FOR 내부 IF와 current/next 색상 조건을 실제 실행 큐 생성에 반영한다. 관리자 로그인, 스테이지 순서 관리, 코드 표시 방식 관리, 선택 스테이지 코드 미리보기, localStorage 저장 흐름도 구현되어 있다. `npm run build` 기준 TypeScript 빌드는 통과했다.
-
-브라우저 도구에서 localhost 직접 접속은 환경 제한으로 확인하지 못했지만, dev 서버는 PowerShell HTTP 요청 기준 `200` 응답을 확인했다. 다음 큰 개발 축은 5분 코드 챌린지 모드다.
+## localStorage Key
+- `codeDrawingChallengeStageProgress`: 스테이지 진행 기록
+- `codeDrawingStageOrder`: 관리자 스테이지 순서
+- `codeDrawingStageCodeDisplayModes`: 관리자 코드 표시 방식
+- `codeDrawingFiveMinuteChallengeRecords`: 코드런 개인 챌린지 기록
+- `codeRunBattleRooms`: 코드런 배틀룸 방 목록
+- `codeRunBattleParticipants`: 코드런 배틀룸 참가자 목록
+- `codeRunBattleHistory`: 코드런 배틀룸 종료 기록
 
 ## 다음에 해야 할 작업
-
-다음 Codex 세션에서는 `9단계: 5분 코드 챌린지 타입 추가`만 진행한다.
-
-구체적으로는 `src/types/game.ts`에 기존 Stage 모드를 깨지 않는 방식으로 챌린지 전용 타입을 추가한다.
-
-예상 타입:
-
-- `ChallengeMode`
-- `ChallengeProblem`
-- `ChallengeProgress`
-- `ChallengeResult`
-- `ChallengeDifficulty`
-- `ChallengeStorageRecord`
-
-아직 UI나 엔진은 만들지 말고 타입만 설계한다.
+브라우저에서 배틀룸 수동 QA를 진행한다. 추천 순서: 교사 방 생성, 입장 코드 확인, 학생 입장, 대기실 참여자 목록 확인, 교사 시작, 학생 플레이, 점수 업데이트, 랭킹 확인, 시간 종료, 지난 기록 확인.
 
 ## 주의사항
-
 - 기존 스테이지 모드를 깨지 말 것
-- 방향키 이벤트가 스테이지 모드와 챌린지 모드에서 충돌하지 않게 할 것
+- 기존 개인 코드런 챌린지 모드를 깨지 말 것
+- 관리자 페이지 흐름을 깨지 말 것
+- 방향키 이벤트가 스테이지, 개인 코드런, 배틀룸에서 동시에 등록되지 않게 할 것
 - localStorage key가 충돌하지 않게 할 것
+- Firebase config가 없을 때도 앱이 build되고 실행되어야 할 것
 - TypeScript any 사용을 최소화할 것
-- 작업 후 npm run build를 확인할 것
-- 작업 후 progress.md와 handoff.md를 갱신할 것
-- 챌린지 모드는 `components/challenge` 폴더 중심으로 분리할 것
-- 엔진 로직과 UI 로직을 분리할 것
-- 불필요한 리팩토링은 피할 것
+- 작업 후 `npm run build`를 확인할 것
+- 작업 후 `prompts/progress.md`와 `prompts/handoff.md`를 갱신할 것
 
 ## 실행 방법
-
 ```bash
 npm install
 npm run dev
 ```
 
 ## 빌드 방법
-
 ```bash
 npm run build
 ```
 
-## 2026-05-24 최근 갱신
-
-- 27~30번 스테이지를 균일한 좌우 반복 패턴에서 실제 픽셀아트 실루엣 중심으로 다시 구성했다.
-- 27번은 번개 화살표, 28번은 로봇 얼굴, 29번은 큰 방패, 30번은 로봇 보스 트로피 컨셉이다.
-- 27~30번은 `currentTileIsYellow`, `currentTileIsBlue`, `currentTileIsRed`, `nextTileIsBlue`, `nextTileIsYellow` 조건을 실제 실행 큐 생성에 사용한다.
-- `npm run build` 기준으로 TypeScript/Vite 빌드가 통과했다.
-
 ## Git 작업 권장 흐름
-
 ```bash
 git status
 git add .

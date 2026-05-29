@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { type ConditionEvaluation, type DisplayCodeLine } from '../engine/codeParser';
 import { formatCodeForDisplay } from '../engine/codeFormatter';
 import type { CodeDisplayMode } from '../types/admin';
@@ -14,6 +15,7 @@ interface CodePanelProps {
   errorSourceLineId?: string | null;
   activeParentInfo?: string;
   conditionEvaluations?: readonly ConditionEvaluation[];
+  enableLineHighlight?: boolean;
 }
 
 type LineState = 'structure' | 'pending' | 'current' | 'completed' | 'error';
@@ -26,19 +28,13 @@ function getLineState(
   currentSourceLineId?: string,
   completedSourceLineIds: readonly string[] = [],
   errorSourceLineId: string | null = null,
+  enableLineHighlight = false,
 ): LineState {
-  void currentCommandIndex;
-  void completedCommandIndexes;
-  void errorCommandIndex;
-  void currentSourceLineId;
-  void completedSourceLineIds;
-  void errorSourceLineId;
+  if (!enableLineHighlight) {
+    return line.commandIndex === undefined ? 'structure' : 'pending';
+  }
 
-  /*
-   * Live code highlighting is intentionally disabled for now.
-   * Keeping the old logic here makes it easy to restore later if a teacher
-   * wants the "current/completed/error line" assist mode again.
-   *
+  // Assist highlighting is opt-in so each game mode can choose its own level of guidance.
   if (line.commandIndex === errorCommandIndex || line.id === errorSourceLineId) {
     return 'error';
   }
@@ -54,7 +50,6 @@ function getLineState(
   if (line.commandIndex !== undefined && completedSourceLineIds.includes(line.id)) {
     return 'completed';
   }
-   */
 
   return line.commandIndex === undefined ? 'structure' : 'pending';
 }
@@ -74,7 +69,7 @@ function shouldHideCompletedLine(line: DisplayCodeLine, lineState: LineState): b
 
 function getStateClassName(lineState: LineState): string {
   const classNames: Record<LineState, string> = {
-    structure: 'bg-slate-900/70 text-slate-300',
+    structure: 'bg-slate-900/80 text-slate-300',
     pending: 'bg-slate-950 text-slate-100',
     current: 'bg-sky-500/25 text-white ring-2 ring-inset ring-sky-300',
     completed: 'bg-emerald-500/15 text-emerald-100',
@@ -82,6 +77,81 @@ function getStateClassName(lineState: LineState): string {
   };
 
   return classNames[lineState];
+}
+
+function getBlockAccentClassName(line: DisplayCodeLine): string {
+  if (line.nodeType === 'for') {
+    return 'border-l-fuchsia-400';
+  }
+
+  if (line.nodeType === 'if') {
+    return 'border-l-amber-400';
+  }
+
+  if (line.nodeType === 'else') {
+    return 'border-l-orange-400';
+  }
+
+  if (line.depth > 0) {
+    return 'border-l-fuchsia-300/70';
+  }
+
+  return 'border-l-transparent';
+}
+
+function getBlockTintClassName(line: DisplayCodeLine, lineState: LineState): string {
+  if (lineState === 'current' || lineState === 'error') {
+    return '';
+  }
+
+  if (line.nodeType === 'for') {
+    return 'bg-fuchsia-400/10';
+  }
+
+  if (line.nodeType === 'if') {
+    return 'bg-amber-400/10';
+  }
+
+  if (line.nodeType === 'else') {
+    return 'bg-orange-400/10';
+  }
+
+  if (line.depth > 0) {
+    return 'bg-fuchsia-400/[0.06]';
+  }
+
+  return '';
+}
+
+function getDepthGuideClassName(depthIndex: number): string {
+  const guideClassNames = [
+    'bg-fuchsia-400',
+    'bg-amber-400',
+    'bg-sky-400',
+    'bg-emerald-400',
+  ];
+
+  return guideClassNames[depthIndex % guideClassNames.length];
+}
+
+function getBlockLabel(line: DisplayCodeLine): string | null {
+  if (line.nodeType === 'for') {
+    return '반복할 내용';
+  }
+
+  if (line.nodeType === 'if') {
+    return '참이면 실행';
+  }
+
+  if (line.nodeType === 'else') {
+    return '아니면 실행';
+  }
+
+  if (line.depth > 0) {
+    return '안쪽 명령';
+  }
+
+  return null;
 }
 
 function getBadgeText(line: DisplayCodeLine, lineState: LineState, codeDisplayMode: CodeDisplayMode): string {
@@ -123,8 +193,14 @@ export function CodePanel({
   errorSourceLineId = null,
   activeParentInfo,
   conditionEvaluations = [],
+  enableLineHighlight = false,
 }: CodePanelProps) {
+  void enableLineHighlight;
+
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const lineElementRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lines = formatCodeForDisplay(code, codeDisplayMode);
+  const showExecutionHighlight = false;
   const panelTitle = codeDisplayMode === 'cStyle' ? 'C언어 느낌 코드' : '한글 블록 코드';
   const panelEyebrow = codeDisplayMode === 'cStyle' ? 'C Style Code' : 'Block Code';
   const currentLineText =
@@ -144,6 +220,7 @@ export function CodePanel({
         currentSourceLineId,
         completedSourceLineIds,
         errorSourceLineId,
+        showExecutionHighlight,
       ),
     ]),
   );
@@ -159,6 +236,36 @@ export function CodePanel({
   const showExecutionAssist = false;
   const showConditionEvaluationAssist = false;
   const isCodeOnlyMode = codeDisplayMode === 'cStyle';
+
+  useEffect(() => {
+    if (!showExecutionHighlight || isCodeOnlyMode || !currentLine?.id) {
+      return undefined;
+    }
+
+    const scrollContainer = scrollContainerRef.current;
+    const currentLineElement = lineElementRefs.current.get(currentLine.id);
+
+    if (!scrollContainer || !currentLineElement) {
+      return undefined;
+    }
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const lineRect = currentLineElement.getBoundingClientRect();
+      const nextScrollTop =
+        scrollContainer.scrollTop +
+        (lineRect.top - containerRect.top) -
+        scrollContainer.clientHeight / 2 +
+        currentLineElement.clientHeight / 2;
+
+      scrollContainer.scrollTo({
+        top: Math.max(0, nextScrollTop),
+        behavior: 'smooth',
+      });
+    });
+
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, [currentLine?.id, isCodeOnlyMode, showExecutionHighlight]);
 
   return (
     <section className="pixel-card min-w-0 overflow-hidden">
@@ -181,40 +288,71 @@ export function CodePanel({
       ) : null}
 
       <div className="p-3 sm:p-5">
-        <div className="max-h-[42vh] overflow-y-auto overflow-x-hidden rounded-xl border-2 border-slate-900 bg-slate-950 font-mono text-xs text-slate-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] sm:text-sm lg:max-h-[62vh]">
+        <div
+          ref={scrollContainerRef}
+          className="max-h-[42vh] overflow-y-auto overflow-x-hidden rounded-xl border-2 border-slate-900 bg-slate-950 font-mono text-xs text-slate-100 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] sm:text-sm lg:max-h-[62vh]"
+        >
           {isCodeOnlyMode ? (
             <pre className="whitespace-pre-wrap px-4 py-4 leading-7 text-slate-100">
               {visibleLines.map((line) => `${'  '.repeat(line.depth)}${line.text}`).join('\n')}
             </pre>
           ) : (
-            visibleLines.map((line, index) => {
+            visibleLines.map((line) => {
             const lineState = lineStates.get(line.id) ?? 'pending';
             const isStructure = lineState === 'structure';
-            const isForLine = line.nodeType === 'for';
-            const isIfLine = line.nodeType === 'if';
             const conditionResult = conditionResultByLineId[line.id];
+            const blockLabel = getBlockLabel(line);
 
             return (
               <div
                 key={line.id}
+                ref={(element) => {
+                  if (element) {
+                    lineElementRefs.current.set(line.id, element);
+                    return;
+                  }
+
+                  lineElementRefs.current.delete(line.id);
+                }}
                 className={[
-                  'grid grid-cols-[3rem_1fr] border-b border-slate-800 transition-colors duration-200 last:border-b-0',
+                  'grid grid-cols-1 border-b border-l-4 border-slate-800 transition-colors duration-200 last:border-b-0',
                   getStateClassName(lineState),
-                  isForLine ? 'border-l-4 border-l-fuchsia-400' : '',
-                  isIfLine ? 'border-l-4 border-l-amber-400' : '',
+                  getBlockAccentClassName(line),
+                  getBlockTintClassName(line, lineState),
                 ].join(' ')}
               >
-                <span className="flex items-center justify-end bg-slate-900 px-3 py-3 text-xs font-bold text-slate-400">
-                  {index + 1}
-                </span>
-                <div className="min-w-0 px-3 py-3" style={{ paddingLeft: `${line.depth * 1.3 + 0.75}rem` }}>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="w-9 shrink-0 rounded bg-white/10 px-1 py-0.5 text-center font-sans text-[10px] font-black">
+                <div
+                  className="relative min-w-0 px-2.5 py-3 sm:px-3"
+                  style={{ paddingLeft: `${line.depth * 1.35 + 0.75}rem` }}
+                >
+                  {Array.from({ length: line.depth }, (_, depthIndex) => (
+                    <span
+                      key={depthIndex}
+                      className={[
+                        'absolute bottom-1.5 top-1.5 w-1 rounded-full opacity-80 shadow-[0_0_0_1px_rgba(255,255,255,0.12)]',
+                        getDepthGuideClassName(depthIndex),
+                      ].join(' ')}
+                      style={{ left: `${depthIndex * 1.35 + 0.38}rem` }}
+                      aria-hidden="true"
+                    />
+                  ))}
+                  <div className="flex min-w-0 flex-wrap items-start gap-2">
+                    <span className="mt-0.5 w-9 shrink-0 rounded bg-white/10 px-1 py-0.5 text-center font-sans text-[10px] font-black">
                       {getBadgeText(line, lineState, codeDisplayMode)}
                     </span>
-                    <code className={['min-w-0 truncate font-black tracking-wide', isStructure ? 'text-slate-300' : ''].join(' ')}>
+                    <code
+                      className={[
+                        'min-w-0 flex-1 whitespace-normal break-keep font-black leading-5 tracking-wide',
+                        isStructure ? 'text-slate-300' : '',
+                      ].join(' ')}
+                    >
                       {line.text}
                     </code>
+                    {blockLabel ? (
+                      <span className="hidden shrink-0 rounded-full border border-white/10 bg-white/10 px-2 py-0.5 font-sans text-[10px] font-black text-slate-300 xl:inline-flex">
+                        {blockLabel}
+                      </span>
+                    ) : null}
                   </div>
                   {line.description ? (
                     <p className="mt-1 pl-11 font-sans text-xs font-semibold leading-5 text-slate-400">

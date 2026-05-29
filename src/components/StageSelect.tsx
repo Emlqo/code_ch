@@ -5,6 +5,8 @@ interface StageSelectProps {
   stages: Stage[];
   progressByStageId: StageProgressMap;
   onSelectStage: (stageId: number) => void;
+  onOpenChallenge: () => void;
+  onOpenBattleRoom: () => void;
   onOpenAdminPage: () => void;
 }
 
@@ -23,7 +25,14 @@ function renderStars(stars: number) {
   ));
 }
 
-export function StageSelect({ stages, progressByStageId, onSelectStage, onOpenAdminPage }: StageSelectProps) {
+export function StageSelect({
+  stages,
+  progressByStageId,
+  onSelectStage,
+  onOpenChallenge,
+  onOpenBattleRoom,
+  onOpenAdminPage,
+}: StageSelectProps) {
   const chapters = groupStagesByChapter(stages);
   const clearedCount = Object.values(progressByStageId).filter((progress) => progress.cleared).length;
   const isUnlocked = (stage: Stage) => {
@@ -57,6 +66,26 @@ export function StageSelect({ stages, progressByStageId, onSelectStage, onOpenAd
               <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
                 클리어 {clearedCount}/{stages.length}
               </div>
+              <button
+                type="button"
+                onClick={onOpenChallenge}
+                className="rounded-xl border-2 border-sky-700 bg-sky-500 px-4 py-3 text-left font-black text-white shadow-[0_5px_0_rgba(14,116,144,0.28)] transition hover:-translate-y-0.5 hover:bg-sky-400 active:translate-y-1 active:shadow-[0_2px_0_rgba(14,116,144,0.28)]"
+              >
+                <span className="block text-sm">코드런 챌린지</span>
+                <span className="mt-1 block text-xs font-bold leading-5 text-sky-50">
+                  제한 시간 동안 코드를 읽고 캐릭터를 움직여 코스를 달려보세요.
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={onOpenBattleRoom}
+                className="rounded-xl border-2 border-emerald-700 bg-emerald-500 px-4 py-3 text-left font-black text-white shadow-[0_5px_0_rgba(4,120,87,0.28)] transition hover:-translate-y-0.5 hover:bg-emerald-400 active:translate-y-1 active:shadow-[0_2px_0_rgba(4,120,87,0.28)]"
+              >
+                <span className="block text-sm">코드런 배틀룸</span>
+                <span className="mt-1 block text-xs font-bold leading-5 text-emerald-50">
+                  입장 코드로 함께 참여하는 실시간 코드런 랭킹 배틀
+                </span>
+              </button>
               <button type="button" onClick={onOpenAdminPage} className="pixel-button text-sm">
                 관리자 페이지
               </button>

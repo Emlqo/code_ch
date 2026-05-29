@@ -12,8 +12,14 @@ interface GameBoardProps {
   colorCluePositions?: ReadonlySet<string> | readonly string[];
   isAnimating?: boolean;
   previewMode?: BoardPreviewMode;
+  cameraMode?: boolean;
+  cameraSize?: number;
   isInputDisabled?: boolean;
   onDirectionInput?: (direction: Direction) => void;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function positionKey(row: number, col: number): string {
@@ -137,12 +143,35 @@ export function GameBoard({
   colorCluePositions = [],
   isAnimating = false,
   previewMode = 'hidden',
+  cameraMode = false,
+  cameraSize = 9,
   isInputDisabled = false,
   onDirectionInput,
 }: GameBoardProps) {
   const rowCount = board.length;
   const columnCount = board[0]?.length ?? 0;
-  const defaultZoom = rowCount >= 15 || columnCount >= 15 ? 150 : 100;
+  const viewportRowCount = cameraMode ? Math.min(rowCount, Math.max(3, cameraSize)) : rowCount;
+  const viewportColumnCount = cameraMode ? Math.min(columnCount, Math.max(3, cameraSize)) : columnCount;
+  const cameraStartRow =
+    cameraMode && rowCount > viewportRowCount
+      ? clamp(currentPosition.row - Math.floor(viewportRowCount / 2), 0, rowCount - viewportRowCount)
+      : 0;
+  const cameraStartCol =
+    cameraMode && columnCount > viewportColumnCount
+      ? clamp(currentPosition.col - Math.floor(viewportColumnCount / 2), 0, columnCount - viewportColumnCount)
+      : 0;
+  const visibleBoard = cameraMode
+    ? board
+        .slice(cameraStartRow, cameraStartRow + viewportRowCount)
+        .map((row) => row.slice(cameraStartCol, cameraStartCol + viewportColumnCount))
+    : board;
+  const displayRowCount = visibleBoard.length;
+  const displayColumnCount = visibleBoard[0]?.length ?? 0;
+  const currentDisplayPosition = {
+    row: currentPosition.row - cameraStartRow,
+    col: currentPosition.col - cameraStartCol,
+  };
+  const defaultZoom = cameraMode ? 100 : rowCount >= 15 || columnCount >= 15 ? 150 : 100;
   const [zoomPercent, setZoomPercent] = useState(defaultZoom);
   const paintedCount = useMemo(
     () =>
@@ -240,11 +269,13 @@ export function GameBoard({
           <div className="relative aspect-square min-w-full" style={{ width: `${zoomPercent}%` }}>
             <div
               className="grid h-full w-full overflow-hidden rounded-lg bg-slate-900"
-              style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
+              style={{ gridTemplateColumns: `repeat(${displayColumnCount}, minmax(0, 1fr))` }}
               aria-label="코드 드로잉 픽셀 보드"
             >
-              {board.flatMap((row, rowIndex) =>
-                row.map((cell, colIndex) => {
+              {visibleBoard.flatMap((row, visibleRowIndex) =>
+                row.map((cell, visibleColIndex) => {
+                  const rowIndex = cameraStartRow + visibleRowIndex;
+                  const colIndex = cameraStartCol + visibleColIndex;
                   const key = positionKey(rowIndex, colIndex);
                   const isPainted = cell.isPainted || hasPosition(paintedPositions, key);
                   const isCurrentPosition = currentPosition.row === rowIndex && currentPosition.col === colIndex;
@@ -316,17 +347,17 @@ export function GameBoard({
               )}
             </div>
 
-            {columnCount > 0 && rowCount > 0 ? (
+            {displayColumnCount > 0 && displayRowCount > 0 ? (
               <div
                 className={[
-                  'pointer-events-none absolute left-0 top-0 flex items-center justify-center',
+                  'pointer-events-none absolute left-0 top-0 z-30 flex items-center justify-center',
                   'transition-[transform] duration-300 ease-out',
                   isAnimating ? 'scale-105' : '',
                 ].join(' ')}
                 style={{
-                  width: `calc(100% / ${columnCount})`,
-                  height: `calc(100% / ${rowCount})`,
-                  transform: `translate(${currentPosition.col * 100}%, ${currentPosition.row * 100}%)`,
+                  width: `calc(100% / ${displayColumnCount})`,
+                  height: `calc(100% / ${displayRowCount})`,
+                  transform: `translate(${currentDisplayPosition.col * 100}%, ${currentDisplayPosition.row * 100}%)`,
                 }}
                 aria-hidden="true"
               >
