@@ -1231,5 +1231,870 @@ const advancedStageReplacements: Stage[] = [
   }),
 ];
 
+type PixelRun = {
+  row: number;
+  from: number;
+  to: number;
+  color?: string;
+};
 
-export const stages: Stage[] = [...baseStages, ...advancedStageReplacements];
+type PixelIconCodeMode = 'forOnly' | 'pathIf' | 'ifElse' | 'colorIf';
+
+type PixelIconStageConfig = {
+  id: number;
+  chapter: string;
+  title: string;
+  description: string;
+  concept: string;
+  difficulty: Stage['difficulty'];
+  rows: number;
+  cols: number;
+  targetImageName: string;
+  runs: PixelRun[];
+  targetColor: string;
+  hints: string[];
+  maxMistakes: number;
+  checkpointMode: Stage['checkpointMode'];
+  codeMode: PixelIconCodeMode;
+  accentMarkers?: StageMarker[];
+};
+
+type DirectionRun = {
+  direction: Direction;
+  count: number;
+  startIndex: number;
+};
+
+const colorConditionByHex: Partial<Record<string, ConditionType>> = {
+  '#facc15': 'nextTileIsYellow',
+  '#eab308': 'nextTileIsYellow',
+  '#fbbf24': 'nextTileIsYellow',
+  '#fde047': 'nextTileIsYellow',
+  '#38bdf8': 'nextTileIsBlue',
+  '#06b6d4': 'nextTileIsBlue',
+  '#0ea5e9': 'nextTileIsBlue',
+  '#3b82f6': 'nextTileIsBlue',
+  '#ef4444': 'nextTileIsRed',
+  '#f43f5e': 'nextTileIsRed',
+  '#fb7185': 'nextTileIsRed',
+  '#dc2626': 'nextTileIsRed',
+};
+
+function positionsToDirections(path: Position[]): Direction[] {
+  const directions: Direction[] = [];
+
+  for (let index = 1; index < path.length; index += 1) {
+    const previous = path[index - 1];
+    const current = path[index];
+    const rowDelta = current.row - previous.row;
+    const colDelta = current.col - previous.col;
+
+    if (rowDelta === -1 && colDelta === 0) {
+      directions.push('up');
+    } else if (rowDelta === 1 && colDelta === 0) {
+      directions.push('down');
+    } else if (rowDelta === 0 && colDelta === -1) {
+      directions.push('left');
+    } else if (rowDelta === 0 && colDelta === 1) {
+      directions.push('right');
+    } else {
+      throw new Error(`Pixel icon path has a non-adjacent step: ${keyOf(previous)} -> ${keyOf(current)}`);
+    }
+  }
+
+  return directions;
+}
+
+function addPathStep(path: Position[], markerByKey: Map<string, string>, position: Position, color: string): void {
+  const previous = path[path.length - 1];
+
+  if (previous && previous.row === position.row && previous.col === position.col) {
+    markerByKey.set(keyOf(position), color);
+    return;
+  }
+
+  path.push(position);
+  markerByKey.set(keyOf(position), color);
+}
+
+function addStraightPath(
+  path: Position[],
+  markerByKey: Map<string, string>,
+  from: Position,
+  to: Position,
+  color: string,
+): void {
+  let current = from;
+
+  while (current.row !== to.row || current.col !== to.col) {
+    current = {
+      row: current.row + Math.sign(to.row - current.row),
+      col: current.col + Math.sign(to.col - current.col),
+    };
+    addPathStep(path, markerByKey, current, color);
+  }
+}
+
+function buildPathFromPixelRuns(runs: PixelRun[], fallbackColor: string): { path: Position[]; markers: StageMarker[] } {
+  if (runs.length === 0) {
+    throw new Error('Pixel icon stage requires at least one run.');
+  }
+
+  const orderedRuns = runs.map((run) => ({
+    ...run,
+    from: Math.min(run.from, run.to),
+    to: Math.max(run.from, run.to),
+  }));
+  const markerByKey = new Map<string, string>();
+  const firstRun = orderedRuns[0];
+  const path: Position[] = [];
+  let current = { row: firstRun.row, col: firstRun.from };
+
+  addPathStep(path, markerByKey, current, firstRun.color ?? fallbackColor);
+  addStraightPath(path, markerByKey, current, { row: firstRun.row, col: firstRun.to }, firstRun.color ?? fallbackColor);
+  current = path[path.length - 1];
+
+  for (let index = 1; index < orderedRuns.length; index += 1) {
+    const previousRun = orderedRuns[index - 1];
+    const run = orderedRuns[index];
+    const color = run.color ?? fallbackColor;
+    const entryCol = Math.abs(current.col - run.from) <= Math.abs(current.col - run.to) ? run.from : run.to;
+    const exitCol = entryCol === run.from ? run.to : run.from;
+
+    if (current.col !== entryCol) {
+      addStraightPath(path, markerByKey, current, { row: current.row, col: entryCol }, previousRun.color ?? fallbackColor);
+      current = path[path.length - 1];
+    }
+
+    if (current.row !== run.row) {
+      addStraightPath(path, markerByKey, current, { row: run.row, col: entryCol }, color);
+      current = path[path.length - 1];
+    }
+
+    addStraightPath(path, markerByKey, current, { row: run.row, col: exitCol }, color);
+    current = path[path.length - 1];
+  }
+
+  return {
+    path,
+    markers: Array.from(markerByKey.entries()).map(([key, color]) => {
+      const [row, col] = key.split('-').map(Number);
+      return { row, col, color };
+    }),
+  };
+}
+
+function buildDirectionRuns(directions: Direction[]): DirectionRun[] {
+  const runs: DirectionRun[] = [];
+
+  directions.forEach((direction, index) => {
+    const previousRun = runs[runs.length - 1];
+
+    if (previousRun && previousRun.direction === direction) {
+      previousRun.count += 1;
+      return;
+    }
+
+    runs.push({ direction, count: 1, startIndex: index });
+  });
+
+  return runs;
+}
+
+function oppositeDirection(direction: Direction): Direction {
+  if (direction === 'up') return 'down';
+  if (direction === 'down') return 'up';
+  if (direction === 'left') return 'right';
+  return 'left';
+}
+
+function colorConditionForRun(
+  path: Position[],
+  markerByKey: Map<string, string>,
+  run: DirectionRun,
+  offset: number,
+  count: number,
+): ConditionType | null {
+  const colors = new Set<string>();
+
+  for (let index = 1; index <= count; index += 1) {
+    const position = path[run.startIndex + offset + index];
+    const color = markerByKey.get(keyOf(position))?.toLowerCase();
+
+    if (color) {
+      colors.add(color);
+    }
+  }
+
+  if (colors.size !== 1) {
+    return null;
+  }
+
+  return colorConditionByHex[Array.from(colors)[0]] ?? null;
+}
+
+function buildPixelIconCode(
+  directions: Direction[],
+  path: Position[],
+  markers: StageMarker[],
+  stageId: number,
+  mode: PixelIconCodeMode,
+): CodeNode[] {
+  const markerByKey = new Map(markers.map((marker) => [keyOf(marker), marker.color]));
+  const nodes: CodeNode[] = [];
+  const runs = buildDirectionRuns(directions);
+
+  runs.forEach((run, runIndex) => {
+    let remaining = run.count;
+    let offset = 0;
+
+    while (remaining > 0) {
+      const chunkCount = Math.min(remaining, 10);
+      const sourceLineId = `s${stageId}-icon-${runIndex + 1}-${offset + 1}`;
+
+      if (mode === 'forOnly') {
+        nodes.push(
+          chunkCount === 1
+            ? m(run.direction, sourceLineId, '픽셀 한 칸 이동')
+            : f(chunkCount, sourceLineId, [m(run.direction, `${sourceLineId}-move`)], '같은 방향으로 픽셀 채우기'),
+        );
+      } else {
+        const condition =
+          mode === 'colorIf' ? colorConditionForRun(path, markerByKey, run, offset, chunkCount) ?? 'pathIsOpen' : 'pathIsOpen';
+
+        if (chunkCount === 1) {
+          nodes.push(
+            conditionalMove(
+              condition,
+              run.direction,
+              sourceLineId,
+              run.direction,
+              oppositeDirection(run.direction),
+              '조건을 확인하고 픽셀 한 칸 이동',
+            ),
+          );
+        } else {
+          nodes.push(
+            conditionalMoveBlock(
+              chunkCount,
+              condition,
+              run.direction,
+              sourceLineId,
+              run.direction,
+              oppositeDirection(run.direction),
+              '조건을 확인하며 같은 방향으로 채우기',
+            ),
+          );
+        }
+      }
+
+      remaining -= chunkCount;
+      offset += chunkCount;
+    }
+  });
+
+  return nodes;
+}
+
+function createPixelIconStage(config: PixelIconStageConfig): Stage {
+  const { path, markers } = buildPathFromPixelRuns(config.runs, config.targetColor);
+  const solutionInput = positionsToDirections(path);
+  const allMarkers = [...markers, ...(config.accentMarkers ?? [])];
+
+  return createStage({
+    id: config.id,
+    chapter: config.chapter,
+    title: config.title,
+    description: config.description,
+    concept: config.concept,
+    difficulty: config.difficulty,
+    rows: config.rows,
+    cols: config.cols,
+    startPosition: path[0],
+    code: buildPixelIconCode(solutionInput, path, allMarkers, config.id, config.codeMode),
+    targetImageName: config.targetImageName,
+    solutionInput,
+    targetColor: config.targetColor,
+    markers: allMarkers,
+    hints: config.hints,
+    maxMistakes: config.maxMistakes,
+    checkpointMode: config.checkpointMode,
+  });
+}
+
+function rowsFromIntervals(
+  startRow: number,
+  intervals: Array<[number, number]>,
+  color: string | ((index: number) => string),
+): PixelRun[] {
+  return intervals.map(([from, to], index) => ({
+    row: startRow + index,
+    from,
+    to,
+    color: typeof color === 'function' ? color(index) : color,
+  }));
+}
+
+const yellowBlueRed = (index: number): string => ['#facc15', '#38bdf8', '#ef4444'][index % 3];
+
+const pixelIconStages: Stage[] = [
+  createPixelIconStage({
+    id: 31,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '대형 번개',
+    description: '큰 보드에서 반복문으로 굵은 번개 아이콘을 완성합니다.',
+    concept: '대형 픽셀아트와 FOR 반복',
+    difficulty: '도전',
+    rows: 30,
+    cols: 30,
+    targetImageName: '큰 번개',
+    targetColor: '#facc15',
+    codeMode: 'forOnly',
+    runs: rowsFromIntervals(
+      3,
+      [
+        [15, 23],
+        [14, 23],
+        [13, 22],
+        [12, 22],
+        [11, 21],
+        [10, 21],
+        [9, 20],
+        [8, 20],
+        [12, 24],
+        [11, 23],
+        [10, 22],
+        [9, 21],
+        [8, 20],
+        [7, 19],
+        [6, 18],
+        [5, 17],
+        [4, 16],
+        [8, 17],
+        [7, 16],
+        [6, 15],
+        [5, 14],
+        [4, 13],
+        [3, 12],
+        [2, 11],
+      ],
+      '#facc15',
+    ),
+    hints: [
+      '번개는 줄마다 시작 위치가 조금씩 움직이면서 굵은 사선 모양을 만들어요.',
+      'FOR 블록은 같은 방향으로 긴 픽셀 줄을 채우는 역할을 해요.',
+      '그림 전체를 한 번에 보려고 하지 말고, 현재 줄과 다음 줄의 연결을 차례대로 따라가 보세요.',
+    ],
+    maxMistakes: 6,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 32,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '픽셀 왕관',
+    description: '넓은 보드에서 왕관의 뾰족한 윗부분과 두꺼운 받침을 채웁니다.',
+    concept: '대형 아이콘 실루엣 읽기',
+    difficulty: '도전',
+    rows: 32,
+    cols: 32,
+    targetImageName: '왕관',
+    targetColor: '#facc15',
+    codeMode: 'forOnly',
+    runs: rowsFromIntervals(
+      4,
+      [
+        [7, 10],
+        [7, 15],
+        [7, 20],
+        [6, 26],
+        [5, 27],
+        [5, 27],
+        [4, 28],
+        [4, 28],
+        [4, 28],
+        [5, 27],
+        [5, 27],
+        [6, 26],
+        [6, 26],
+        [5, 27],
+        [4, 28],
+        [4, 28],
+        [4, 28],
+        [5, 27],
+        [6, 26],
+        [7, 25],
+        [8, 24],
+      ],
+      (index) => (index === 3 || index === 13 ? '#fbbf24' : '#facc15'),
+    ),
+    accentMarkers: [
+      { row: 10, col: 10, color: '#ef4444' },
+      { row: 10, col: 16, color: '#38bdf8' },
+      { row: 10, col: 22, color: '#ef4444' },
+      { row: 17, col: 12, color: '#38bdf8' },
+      { row: 17, col: 20, color: '#38bdf8' },
+    ],
+    hints: [
+      '왕관은 위쪽의 뾰족한 부분이 먼저 만들어지고 아래로 갈수록 넓어져요.',
+      '중간중간 다른 색 픽셀은 보석처럼 보이는 포인트예요.',
+      '긴 FOR 줄을 읽을 때는 반복 횟수만큼 같은 방향을 정확히 입력하세요.',
+    ],
+    maxMistakes: 6,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 33,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '픽셀 열쇠',
+    description: '둥근 손잡이와 긴 몸통을 가진 큰 열쇠 아이콘을 완성합니다.',
+    concept: 'FOR 반복으로 큰 도형 채우기',
+    difficulty: '어려움',
+    rows: 32,
+    cols: 36,
+    targetImageName: '열쇠',
+    targetColor: '#facc15',
+    codeMode: 'forOnly',
+    runs: rowsFromIntervals(
+      5,
+      [
+        [7, 16],
+        [5, 18],
+        [4, 20],
+        [3, 21],
+        [3, 22],
+        [4, 23],
+        [5, 29],
+        [6, 31],
+        [7, 32],
+        [8, 33],
+        [9, 31],
+        [10, 30],
+        [11, 33],
+        [12, 34],
+        [13, 31],
+        [14, 29],
+        [13, 24],
+        [11, 21],
+        [8, 18],
+      ],
+      (index) => (index >= 6 && index <= 14 ? '#fbbf24' : '#facc15'),
+    ),
+    accentMarkers: [
+      { row: 9, col: 10, color: '#38bdf8' },
+      { row: 9, col: 11, color: '#38bdf8' },
+      { row: 10, col: 10, color: '#38bdf8' },
+      { row: 10, col: 11, color: '#38bdf8' },
+    ],
+    hints: [
+      '앞부분은 열쇠 손잡이, 뒤쪽으로 길게 이어지는 부분은 열쇠 몸통이에요.',
+      'FOR 반복이 길어질수록 같은 방향 입력을 놓치지 않는 것이 중요해요.',
+      '파란색 포인트는 손잡이 안쪽 구멍을 표현하는 픽셀입니다.',
+    ],
+    maxMistakes: 6,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 34,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '대형 방패',
+    description: '위가 넓고 아래가 좁아지는 방패 아이콘을 반복문으로 완성합니다.',
+    concept: '줄 길이가 변하는 FOR 반복',
+    difficulty: '어려움',
+    rows: 34,
+    cols: 34,
+    targetImageName: '방패',
+    targetColor: '#38bdf8',
+    codeMode: 'forOnly',
+    runs: rowsFromIntervals(
+      4,
+      [
+        [6, 27],
+        [5, 28],
+        [4, 29],
+        [4, 29],
+        [4, 29],
+        [5, 28],
+        [5, 28],
+        [6, 27],
+        [6, 27],
+        [7, 26],
+        [7, 26],
+        [8, 25],
+        [8, 25],
+        [9, 24],
+        [9, 24],
+        [10, 23],
+        [10, 23],
+        [11, 22],
+        [12, 21],
+        [13, 20],
+        [14, 19],
+        [15, 18],
+        [16, 17],
+      ],
+      (index) => (index < 5 ? '#38bdf8' : index < 14 ? '#0ea5e9' : '#3b82f6'),
+    ),
+    accentMarkers: [
+      { row: 10, col: 16, color: '#facc15' },
+      { row: 11, col: 16, color: '#facc15' },
+      { row: 12, col: 15, color: '#facc15' },
+      { row: 12, col: 16, color: '#facc15' },
+      { row: 12, col: 17, color: '#facc15' },
+      { row: 13, col: 16, color: '#facc15' },
+    ],
+    hints: [
+      '방패는 위쪽이 가장 넓고 아래로 갈수록 점점 좁아져요.',
+      '각 줄의 반복 횟수가 조금씩 달라지는 이유를 생각해 보세요.',
+      '가운데 노란 픽셀은 방패의 문장처럼 보이는 포인트예요.',
+    ],
+    maxMistakes: 7,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 35,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '대형 로봇 얼굴',
+    description: 'IF 조건으로 길이 열린지 확인하면서 로봇 얼굴을 채웁니다.',
+    concept: 'FOR + 간단한 IF 조건',
+    difficulty: '어려움',
+    rows: 34,
+    cols: 34,
+    targetImageName: '로봇 얼굴',
+    targetColor: '#94a3b8',
+    codeMode: 'pathIf',
+    runs: rowsFromIntervals(
+      5,
+      [
+        [10, 23],
+        [8, 25],
+        [7, 26],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [6, 27],
+        [7, 26],
+        [8, 25],
+        [9, 24],
+        [10, 23],
+      ],
+      '#94a3b8',
+    ),
+    accentMarkers: [
+      { row: 11, col: 11, color: '#38bdf8' },
+      { row: 11, col: 12, color: '#38bdf8' },
+      { row: 11, col: 21, color: '#38bdf8' },
+      { row: 11, col: 22, color: '#38bdf8' },
+      { row: 18, col: 12, color: '#ef4444' },
+      { row: 18, col: 13, color: '#ef4444' },
+      { row: 18, col: 14, color: '#ef4444' },
+      { row: 18, col: 19, color: '#ef4444' },
+      { row: 18, col: 20, color: '#ef4444' },
+      { row: 18, col: 21, color: '#ef4444' },
+    ],
+    hints: [
+      'IF PATH IS OPEN은 지정한 방향으로 이동할 수 있는지 확인해요.',
+      '조건이 참이면 THEN 쪽 이동이 실행됩니다.',
+      '로봇 얼굴은 큰 회색 면 위에 눈과 입 포인트가 들어가요.',
+    ],
+    maxMistakes: 7,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 36,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '게임 보석',
+    description: '조건 확인과 반복 입력으로 반짝이는 보석 아이콘을 완성합니다.',
+    concept: 'FOR + IF로 다이아몬드 채우기',
+    difficulty: '어려움',
+    rows: 34,
+    cols: 34,
+    targetImageName: '게임 보석',
+    targetColor: '#38bdf8',
+    codeMode: 'pathIf',
+    runs: rowsFromIntervals(
+      5,
+      [
+        [15, 18],
+        [13, 20],
+        [11, 22],
+        [9, 24],
+        [7, 26],
+        [6, 27],
+        [5, 28],
+        [6, 27],
+        [7, 26],
+        [8, 25],
+        [9, 24],
+        [10, 23],
+        [11, 22],
+        [12, 21],
+        [13, 20],
+        [14, 19],
+        [15, 18],
+      ],
+      (index) => (index < 5 ? '#38bdf8' : index < 10 ? '#0ea5e9' : '#3b82f6'),
+    ),
+    accentMarkers: [
+      { row: 8, col: 16, color: '#facc15' },
+      { row: 9, col: 15, color: '#facc15' },
+      { row: 9, col: 16, color: '#facc15' },
+      { row: 10, col: 14, color: '#facc15' },
+      { row: 10, col: 15, color: '#facc15' },
+      { row: 11, col: 13, color: '#facc15' },
+    ],
+    hints: [
+      '보석은 위아래가 뾰족한 다이아몬드 모양이에요.',
+      'PATH IS OPEN 조건은 현재 이동 방향이 막혀 있지 않은지 확인합니다.',
+      '색이 바뀌는 줄은 보석의 반짝임을 표현하는 부분이에요.',
+    ],
+    maxMistakes: 7,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 37,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '대형 트로피',
+    description: 'IF와 ELSE 구조를 읽으며 트로피 컵과 받침을 완성합니다.',
+    concept: 'FOR + IF + ELSE 구조',
+    difficulty: '매우 어려움',
+    rows: 36,
+    cols: 36,
+    targetImageName: '트로피',
+    targetColor: '#facc15',
+    codeMode: 'ifElse',
+    runs: rowsFromIntervals(
+      4,
+      [
+        [9, 26],
+        [7, 28],
+        [6, 29],
+        [5, 30],
+        [5, 30],
+        [6, 29],
+        [7, 28],
+        [8, 27],
+        [9, 26],
+        [10, 25],
+        [11, 24],
+        [12, 23],
+        [13, 22],
+        [14, 21],
+        [15, 20],
+        [16, 19],
+        [15, 20],
+        [14, 21],
+        [12, 23],
+        [10, 25],
+        [8, 27],
+        [7, 28],
+        [7, 28],
+        [8, 27],
+      ],
+      (index) => (index < 16 ? '#facc15' : '#fbbf24'),
+    ),
+    accentMarkers: [
+      { row: 8, col: 7, color: '#fbbf24' },
+      { row: 8, col: 28, color: '#fbbf24' },
+      { row: 9, col: 6, color: '#fbbf24' },
+      { row: 9, col: 29, color: '#fbbf24' },
+      { row: 25, col: 15, color: '#38bdf8' },
+      { row: 25, col: 20, color: '#38bdf8' },
+    ],
+    hints: [
+      'IF와 ELSE가 같이 있어도 조건 결과에 따라 한쪽만 실행돼요.',
+      '트로피 컵은 넓게 시작했다가 아래로 갈수록 목 부분이 좁아집니다.',
+      '반복문 안의 조건문은 반복될 때마다 다시 확인된다고 생각하세요.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 38,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '픽셀 우주선',
+    description: '조건문과 반복문을 따라가며 넓은 우주선 실루엣을 완성합니다.',
+    concept: 'FOR + IF + ELSE로 넓은 아이콘 완성',
+    difficulty: '매우 어려움',
+    rows: 36,
+    cols: 40,
+    targetImageName: '우주선',
+    targetColor: '#38bdf8',
+    codeMode: 'ifElse',
+    runs: rowsFromIntervals(
+      5,
+      [
+        [18, 21],
+        [16, 23],
+        [14, 25],
+        [12, 27],
+        [10, 29],
+        [8, 31],
+        [6, 33],
+        [5, 34],
+        [4, 35],
+        [3, 36],
+        [4, 35],
+        [6, 33],
+        [8, 31],
+        [10, 29],
+        [12, 27],
+        [14, 25],
+        [16, 23],
+        [18, 21],
+      ],
+      (index) => (index < 9 ? '#38bdf8' : '#0ea5e9'),
+    ),
+    accentMarkers: [
+      { row: 11, col: 18, color: '#facc15' },
+      { row: 11, col: 19, color: '#facc15' },
+      { row: 11, col: 20, color: '#facc15' },
+      { row: 11, col: 21, color: '#facc15' },
+      { row: 14, col: 8, color: '#ef4444' },
+      { row: 14, col: 31, color: '#ef4444' },
+      { row: 20, col: 18, color: '#ef4444' },
+      { row: 20, col: 21, color: '#ef4444' },
+    ],
+    hints: [
+      '우주선은 가운데가 넓고 위아래가 좁은 대칭 구조예요.',
+      'IF PATH IS OPEN이 참이면 THEN 방향으로 이동합니다.',
+      'ELSE 블록은 조건이 맞지 않을 때의 예비 경로라고 생각하면 좋아요.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelIconStage({
+    id: 39,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '보스 얼굴',
+    description: '색상 조건 IF를 읽으며 거대한 보스 얼굴 아이콘을 완성합니다.',
+    concept: '색상 조건 IF + 반복문',
+    difficulty: '최종 문제',
+    rows: 42,
+    cols: 42,
+    targetImageName: '보스 얼굴',
+    targetColor: '#ef4444',
+    codeMode: 'colorIf',
+    runs: rowsFromIntervals(
+      5,
+      [
+        [15, 26],
+        [12, 29],
+        [10, 31],
+        [8, 33],
+        [7, 34],
+        [6, 35],
+        [6, 35],
+        [6, 35],
+        [6, 35],
+        [6, 35],
+        [6, 35],
+        [6, 35],
+        [7, 34],
+        [8, 33],
+        [9, 32],
+        [10, 31],
+        [10, 31],
+        [10, 31],
+        [11, 30],
+        [12, 29],
+        [13, 28],
+        [14, 27],
+        [15, 26],
+      ],
+      yellowBlueRed,
+    ),
+    accentMarkers: [
+      { row: 13, col: 13, color: '#facc15' },
+      { row: 13, col: 14, color: '#facc15' },
+      { row: 13, col: 27, color: '#facc15' },
+      { row: 13, col: 28, color: '#facc15' },
+      { row: 20, col: 15, color: '#38bdf8' },
+      { row: 20, col: 16, color: '#38bdf8' },
+      { row: 20, col: 25, color: '#38bdf8' },
+      { row: 20, col: 26, color: '#38bdf8' },
+      { row: 24, col: 17, color: '#facc15' },
+      { row: 24, col: 18, color: '#facc15' },
+      { row: 24, col: 23, color: '#facc15' },
+      { row: 24, col: 24, color: '#facc15' },
+    ],
+    hints: [
+      '색상 조건은 다음 칸의 색을 보고 THEN 또는 ELSE 중 하나를 실행해요.',
+      'NEXT TILE IS BLUE처럼 쓰인 조건은 checkDirection 방향의 다음 칸을 확인합니다.',
+      '보스 얼굴은 빨강, 파랑, 노랑 줄이 섞여 있어서 조건을 더 꼼꼼히 읽어야 해요.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'failImmediately',
+  }),
+  createPixelIconStage({
+    id: 40,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '최종 픽셀 별',
+    description: '색상 조건과 반복문을 결합해 마지막 대형 별 아이콘을 완성합니다.',
+    concept: '최종 색상 조건 픽셀아트',
+    difficulty: '최종 문제',
+    rows: 44,
+    cols: 44,
+    targetImageName: '최종 별',
+    targetColor: '#facc15',
+    codeMode: 'colorIf',
+    runs: rowsFromIntervals(
+      4,
+      [
+        [20, 23],
+        [19, 24],
+        [18, 25],
+        [17, 26],
+        [16, 27],
+        [15, 28],
+        [9, 34],
+        [7, 36],
+        [6, 37],
+        [8, 35],
+        [10, 33],
+        [12, 31],
+        [14, 29],
+        [12, 31],
+        [10, 33],
+        [8, 35],
+        [6, 37],
+        [7, 36],
+        [9, 34],
+        [15, 28],
+        [16, 27],
+        [17, 26],
+        [18, 25],
+        [19, 24],
+        [20, 23],
+      ],
+      (index) => (index % 4 === 0 ? '#facc15' : index % 4 === 1 ? '#fbbf24' : index % 4 === 2 ? '#38bdf8' : '#ef4444'),
+    ),
+    accentMarkers: [
+      { row: 13, col: 21, color: '#facc15' },
+      { row: 14, col: 20, color: '#facc15' },
+      { row: 14, col: 21, color: '#facc15' },
+      { row: 14, col: 22, color: '#facc15' },
+      { row: 21, col: 15, color: '#38bdf8' },
+      { row: 21, col: 28, color: '#38bdf8' },
+      { row: 24, col: 21, color: '#ef4444' },
+      { row: 25, col: 20, color: '#ef4444' },
+      { row: 25, col: 21, color: '#ef4444' },
+      { row: 25, col: 22, color: '#ef4444' },
+    ],
+    hints: [
+      '최종 별은 줄마다 색이 바뀌기 때문에 색상 조건을 정확히 확인해야 해요.',
+      'FOR 안의 IF는 반복되는 동안 계속 같은 규칙으로 다음 칸 색을 검사합니다.',
+      '큰 별은 가운데가 넓고 위아래가 좁아지는 구조라 줄 길이가 크게 달라집니다.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'failImmediately',
+  }),
+];
+
+export const stages: Stage[] = [...baseStages, ...advancedStageReplacements, ...pixelIconStages];

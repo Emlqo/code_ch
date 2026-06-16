@@ -16,6 +16,7 @@ interface AdminPageProps {
   onChangeStageCodeDisplayMode: (stageId: string, mode: CodeDisplayMode) => void;
   onSetAllStageCodeDisplayModes: (mode: CodeDisplayMode) => void;
   onResetStageCodeDisplayModes: () => void;
+  onStartStage: (stageId: number) => void;
 }
 
 const modeLabels: Record<CodeDisplayMode, string> = {
@@ -36,6 +37,7 @@ export function AdminPage({
   onChangeStageCodeDisplayMode,
   onSetAllStageCodeDisplayModes,
   onResetStageCodeDisplayModes,
+  onStartStage,
 }: AdminPageProps) {
   const [selectedStageId, setSelectedStageId] = useState(stages[0]?.id ?? 0);
   const [showBattleRoomAdmin, setShowBattleRoomAdmin] = useState(false);
@@ -141,6 +143,7 @@ export function AdminPage({
               stages={stages}
               selectedStageId={selectedStage?.id}
               onSelectStage={setSelectedStageId}
+              onStartStage={onStartStage}
               onMoveStage={handleMoveStage}
               onResetOrder={handleResetStageOrder}
             />
@@ -173,6 +176,13 @@ export function AdminPage({
                     <span>챕터: {selectedStage.chapter}</span>
                     <span>학습 개념: {selectedStage.concept}</span>
                     <span>완성 그림: {selectedStage.targetImageName}</span>
+                    <button
+                      type="button"
+                      onClick={() => onStartStage(selectedStage.id)}
+                      className="pixel-button mt-2 bg-emerald-500 text-sm hover:bg-emerald-400"
+                    >
+                      선택한 스테이지 바로 실행
+                    </button>
                   </div>
                   <div className="max-h-[62vh] overflow-y-auto rounded-xl border-2 border-slate-900 bg-slate-950 font-mono text-xs text-slate-100 sm:text-sm">
                     {previewLines.map((line, index) => (

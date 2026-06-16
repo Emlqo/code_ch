@@ -23,6 +23,7 @@ type Screen = 'stageSelect' | 'game' | 'challenge' | 'battleRoom' | AdminScreen;
 
 export function GameContainer() {
   const [screen, setScreen] = useState<Screen>('stageSelect');
+  const [gameBackScreen, setGameBackScreen] = useState<'stageSelect' | 'adminPage'>('stageSelect');
   const [stageOrderIds, setStageOrderIds] = useState<string[] | null>(() => getSavedStageOrder());
   const [codeDisplayModes, setCodeDisplayModes] = useState<Record<string, CodeDisplayMode>>(() =>
     getStageCodeDisplayModes(),
@@ -32,6 +33,13 @@ export function GameContainer() {
   const [progressByStageId, setProgressByStageId] = useState<StageProgressMap>(() => getStageProgress());
 
   const startStage = (stageId: number) => {
+    setGameBackScreen('stageSelect');
+    setSelectedStageId(stageId);
+    setScreen('game');
+  };
+
+  const startStageFromAdmin = (stageId: number) => {
+    setGameBackScreen('adminPage');
     setSelectedStageId(stageId);
     setScreen('game');
   };
@@ -127,6 +135,7 @@ export function GameContainer() {
         onChangeStageCodeDisplayMode={changeStageCodeDisplayMode}
         onSetAllStageCodeDisplayModes={setAllStageCodeDisplayModes}
         onResetStageCodeDisplayModes={resetSavedStageCodeDisplayModes}
+        onStartStage={startStageFromAdmin}
       />
     );
   }
@@ -137,7 +146,7 @@ export function GameContainer() {
     <GameLayout
       selectedStageId={selectedStageId}
       codeDisplayMode={codeDisplayModes[selectedStageOrderId] ?? 'pseudocode'}
-      onBackToStageSelect={() => setScreen('stageSelect')}
+      onBackToStageSelect={() => setScreen(gameBackScreen)}
       onSelectStage={setSelectedStageId}
       onStageClear={handleStageClear}
       stages={orderedStages}

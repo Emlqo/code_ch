@@ -5,6 +5,7 @@ interface StageOrderManagerProps {
   stages: Stage[];
   selectedStageId?: number;
   onSelectStage: (stageId: number) => void;
+  onStartStage?: (stageId: number) => void;
   onMoveStage: (stageIndex: number, direction: 'up' | 'down') => void;
   onResetOrder: () => void;
 }
@@ -13,6 +14,7 @@ export function StageOrderManager({
   stages,
   selectedStageId,
   onSelectStage,
+  onStartStage,
   onMoveStage,
   onResetOrder,
 }: StageOrderManagerProps) {
@@ -76,13 +78,20 @@ export function StageOrderManager({
                 <p className="mt-2 text-sm font-bold text-slate-700">학습 개념: {stage.concept}</p>
               </button>
 
-              <div className="grid grid-cols-3 gap-2 lg:w-36 lg:grid-cols-1">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:w-36 lg:grid-cols-1">
                 <button
                   type="button"
                   onClick={() => onSelectStage(stage.id)}
                   className="pixel-button px-3 py-2 text-sm"
                 >
                   선택
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onStartStage?.(stage.id)}
+                  className="pixel-button bg-emerald-500 px-3 py-2 text-sm hover:bg-emerald-400"
+                >
+                  실행
                 </button>
                 <button
                   type="button"
