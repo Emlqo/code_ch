@@ -1257,12 +1257,24 @@ type PixelIconStageConfig = {
   checkpointMode: Stage['checkpointMode'];
   codeMode: PixelIconCodeMode;
   accentMarkers?: StageMarker[];
+  scale?: PixelIconScale;
+};
+
+type PixelPathStageConfig = Omit<PixelIconStageConfig, 'runs' | 'scale' | 'accentMarkers'> & {
+  path: Position[];
 };
 
 type DirectionRun = {
   direction: Direction;
   count: number;
   startIndex: number;
+};
+
+type PixelIconScale = {
+  row: number;
+  col: number;
+  rowOffset: number;
+  colOffset: number;
 };
 
 const colorConditionByHex: Partial<Record<string, ConditionType>> = {
@@ -1497,9 +1509,13 @@ function buildPixelIconCode(
 }
 
 function createPixelIconStage(config: PixelIconStageConfig): Stage {
-  const { path, markers } = buildPathFromPixelRuns(config.runs, config.targetColor);
+  const scaledRuns = config.scale ? scalePixelRuns(config.runs, config.scale) : config.runs;
+  const scaledAccentMarkers = config.scale
+    ? scaleStageMarkers(config.accentMarkers ?? [], config.runs, config.scale)
+    : config.accentMarkers ?? [];
+  const { path, markers } = buildPathFromPixelRuns(scaledRuns, config.targetColor);
   const solutionInput = positionsToDirections(path);
-  const allMarkers = [...markers, ...(config.accentMarkers ?? [])];
+  const allMarkers = [...markers, ...scaledAccentMarkers];
 
   return createStage({
     id: config.id,
@@ -1522,6 +1538,90 @@ function createPixelIconStage(config: PixelIconStageConfig): Stage {
   });
 }
 
+function createPixelPathStage(config: PixelPathStageConfig): Stage {
+  const solutionInput = positionsToDirections(config.path);
+  const pathMarkers = config.path.map((position) => ({
+    ...position,
+    color: config.targetColor,
+  }));
+
+  return createStage({
+    id: config.id,
+    chapter: config.chapter,
+    title: config.title,
+    description: config.description,
+    concept: config.concept,
+    difficulty: config.difficulty,
+    rows: config.rows,
+    cols: config.cols,
+    startPosition: config.path[0],
+    code: buildPixelIconCode(solutionInput, config.path, pathMarkers, config.id, config.codeMode),
+    targetImageName: config.targetImageName,
+    solutionInput,
+    targetColor: config.targetColor,
+    hints: config.hints,
+    maxMistakes: config.maxMistakes,
+    checkpointMode: config.checkpointMode,
+  });
+}
+
+function createStageFromPathWithCode(
+  config: Omit<PixelPathStageConfig, 'codeMode'> & {
+    code: CodeNode[];
+    markers?: StageMarker[];
+    walls?: Position[];
+  },
+): Stage {
+  const solutionInput = positionsToDirections(config.path);
+  const pathMarkers = config.path.map((position) => ({
+    ...position,
+    color: config.targetColor,
+  }));
+
+  return createStage({
+    id: config.id,
+    chapter: config.chapter,
+    title: config.title,
+    description: config.description,
+    concept: config.concept,
+    difficulty: config.difficulty,
+    rows: config.rows,
+    cols: config.cols,
+    startPosition: config.path[0],
+    code: config.code,
+    targetImageName: config.targetImageName,
+    solutionInput,
+    targetColor: config.targetColor,
+    walls: config.walls,
+    markers: [...pathMarkers, ...(config.markers ?? [])],
+    hints: config.hints,
+    maxMistakes: config.maxMistakes,
+    checkpointMode: config.checkpointMode,
+  });
+}
+
+function pathFromWaypoints(waypoints: Position[]): Position[] {
+  if (waypoints.length === 0) {
+    throw new Error('Pixel path stage requires at least one waypoint.');
+  }
+
+  const path = [waypoints[0]];
+  const markerByKey = new Map([[keyOf(waypoints[0]), '#ffffff']]);
+
+  for (let index = 1; index < waypoints.length; index += 1) {
+    const current = path[path.length - 1];
+    const waypoint = waypoints[index];
+
+    if (current.row !== waypoint.row && current.col !== waypoint.col) {
+      addStraightPath(path, markerByKey, current, { row: waypoint.row, col: current.col }, '#ffffff');
+    }
+
+    addStraightPath(path, markerByKey, path[path.length - 1], waypoint, '#ffffff');
+  }
+
+  return path;
+}
+
 function rowsFromIntervals(
   startRow: number,
   intervals: Array<[number, number]>,
@@ -1535,6 +1635,48 @@ function rowsFromIntervals(
   }));
 }
 
+function getScaleOrigin(runs: PixelRun[]): Position {
+  return {
+    row: Math.min(...runs.map((run) => run.row)),
+    col: Math.min(...runs.flatMap((run) => [run.from, run.to])),
+  };
+}
+
+function scaleCoordinate(value: number, origin: number, scale: number, offset: number): number {
+  return offset + Math.round((value - origin) * scale);
+}
+
+function scalePixelRuns(runs: PixelRun[], scale: PixelIconScale): PixelRun[] {
+  const origin = getScaleOrigin(runs);
+
+  return runs
+    .map((run) => {
+      const from = scaleCoordinate(run.from, origin.col, scale.col, scale.colOffset);
+      const to = scaleCoordinate(run.to, origin.col, scale.col, scale.colOffset);
+
+      return {
+        row: scaleCoordinate(run.row, origin.row, scale.row, scale.rowOffset),
+        from: Math.min(from, to),
+        to: Math.max(from, to),
+        color: run.color,
+      };
+    })
+    .filter((run, index, scaledRuns) => {
+      const previousRun = scaledRuns[index - 1];
+      return !previousRun || previousRun.row !== run.row || previousRun.from !== run.from || previousRun.to !== run.to;
+    });
+}
+
+function scaleStageMarkers(markers: StageMarker[], referenceRuns: PixelRun[], scale: PixelIconScale): StageMarker[] {
+  const origin = getScaleOrigin(referenceRuns);
+
+  return markers.map((marker) => ({
+    row: scaleCoordinate(marker.row, origin.row, scale.row, scale.rowOffset),
+    col: scaleCoordinate(marker.col, origin.col, scale.col, scale.colOffset),
+    color: marker.color,
+  }));
+}
+
 const yellowBlueRed = (index: number): string => ['#facc15', '#38bdf8', '#ef4444'][index % 3];
 
 const pixelIconStages: Stage[] = [
@@ -1545,11 +1687,12 @@ const pixelIconStages: Stage[] = [
     description: '큰 보드에서 반복문으로 굵은 번개 아이콘을 완성합니다.',
     concept: '대형 픽셀아트와 FOR 반복',
     difficulty: '도전',
-    rows: 30,
-    cols: 30,
+    rows: 20,
+    cols: 20,
     targetImageName: '큰 번개',
     targetColor: '#facc15',
     codeMode: 'forOnly',
+    scale: { row: 0.58, col: 0.58, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       3,
       [
@@ -1595,11 +1738,12 @@ const pixelIconStages: Stage[] = [
     description: '넓은 보드에서 왕관의 뾰족한 윗부분과 두꺼운 받침을 채웁니다.',
     concept: '대형 아이콘 실루엣 읽기',
     difficulty: '도전',
-    rows: 32,
-    cols: 32,
+    rows: 22,
+    cols: 22,
     targetImageName: '왕관',
     targetColor: '#facc15',
     codeMode: 'forOnly',
+    scale: { row: 0.48, col: 0.48, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       4,
       [
@@ -1649,11 +1793,12 @@ const pixelIconStages: Stage[] = [
     description: '둥근 손잡이와 긴 몸통을 가진 큰 열쇠 아이콘을 완성합니다.',
     concept: 'FOR 반복으로 큰 도형 채우기',
     difficulty: '어려움',
-    rows: 32,
-    cols: 36,
+    rows: 21,
+    cols: 22,
     targetImageName: '열쇠',
     targetColor: '#facc15',
     codeMode: 'forOnly',
+    scale: { row: 0.48, col: 0.48, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       5,
       [
@@ -1700,11 +1845,12 @@ const pixelIconStages: Stage[] = [
     description: '위가 넓고 아래가 좁아지는 방패 아이콘을 반복문으로 완성합니다.',
     concept: '줄 길이가 변하는 FOR 반복',
     difficulty: '어려움',
-    rows: 34,
-    cols: 34,
+    rows: 23,
+    cols: 23,
     targetImageName: '방패',
     targetColor: '#38bdf8',
     codeMode: 'forOnly',
+    scale: { row: 0.56, col: 0.56, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       4,
       [
@@ -1757,11 +1903,12 @@ const pixelIconStages: Stage[] = [
     description: 'IF 조건으로 길이 열린지 확인하면서 로봇 얼굴을 채웁니다.',
     concept: 'FOR + 간단한 IF 조건',
     difficulty: '어려움',
-    rows: 34,
-    cols: 34,
+    rows: 23,
+    cols: 23,
     targetImageName: '로봇 얼굴',
     targetColor: '#94a3b8',
     codeMode: 'pathIf',
+    scale: { row: 0.58, col: 0.58, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       5,
       [
@@ -1813,11 +1960,12 @@ const pixelIconStages: Stage[] = [
     description: '조건 확인과 반복 입력으로 반짝이는 보석 아이콘을 완성합니다.',
     concept: 'FOR + IF로 다이아몬드 채우기',
     difficulty: '어려움',
-    rows: 34,
-    cols: 34,
+    rows: 22,
+    cols: 22,
     targetImageName: '게임 보석',
     targetColor: '#38bdf8',
     codeMode: 'pathIf',
+    scale: { row: 0.62, col: 0.62, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       5,
       [
@@ -1864,11 +2012,12 @@ const pixelIconStages: Stage[] = [
     description: 'IF와 ELSE 구조를 읽으며 트로피 컵과 받침을 완성합니다.',
     concept: 'FOR + IF + ELSE 구조',
     difficulty: '매우 어려움',
-    rows: 36,
-    cols: 36,
+    rows: 25,
+    cols: 25,
     targetImageName: '트로피',
     targetColor: '#facc15',
     codeMode: 'ifElse',
+    scale: { row: 0.55, col: 0.55, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       4,
       [
@@ -1922,11 +2071,12 @@ const pixelIconStages: Stage[] = [
     description: '조건문과 반복문을 따라가며 넓은 우주선 실루엣을 완성합니다.',
     concept: 'FOR + IF + ELSE로 넓은 아이콘 완성',
     difficulty: '매우 어려움',
-    rows: 36,
-    cols: 40,
+    rows: 22,
+    cols: 24,
     targetImageName: '우주선',
     targetColor: '#38bdf8',
     codeMode: 'ifElse',
+    scale: { row: 0.48, col: 0.48, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       5,
       [
@@ -1976,11 +2126,12 @@ const pixelIconStages: Stage[] = [
     description: '색상 조건 IF를 읽으며 거대한 보스 얼굴 아이콘을 완성합니다.',
     concept: '색상 조건 IF + 반복문',
     difficulty: '최종 문제',
-    rows: 42,
-    cols: 42,
+    rows: 23,
+    cols: 23,
     targetImageName: '보스 얼굴',
     targetColor: '#ef4444',
     codeMode: 'colorIf',
+    scale: { row: 0.43, col: 0.43, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       5,
       [
@@ -2039,11 +2190,12 @@ const pixelIconStages: Stage[] = [
     description: '색상 조건과 반복문을 결합해 마지막 대형 별 아이콘을 완성합니다.',
     concept: '최종 색상 조건 픽셀아트',
     difficulty: '최종 문제',
-    rows: 44,
-    cols: 44,
+    rows: 24,
+    cols: 24,
     targetImageName: '최종 별',
     targetColor: '#facc15',
     codeMode: 'colorIf',
+    scale: { row: 0.43, col: 0.43, rowOffset: 2, colOffset: 2 },
     runs: rowsFromIntervals(
       4,
       [
@@ -2097,4 +2249,348 @@ const pixelIconStages: Stage[] = [
   }),
 ];
 
-export const stages: Stage[] = [...baseStages, ...advancedStageReplacements, ...pixelIconStages];
+const pixelIconStageCorrections: Stage[] = [
+  createPixelPathStage({
+    id: 33,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '테두리 열쇠',
+    description: '속을 모두 채우지 않고 고리, 몸통, 이빨의 테두리만 따라가며 열쇠 아이콘을 완성합니다.',
+    concept: '테두리 픽셀아트와 FOR 반복',
+    difficulty: '어려움',
+    rows: 20,
+    cols: 28,
+    targetImageName: '테두리 열쇠',
+    targetColor: '#facc15',
+    codeMode: 'forOnly',
+    path: pathFromWaypoints([
+      { row: 10, col: 4 },
+      { row: 7, col: 4 },
+      { row: 7, col: 10 },
+      { row: 9, col: 10 },
+      { row: 9, col: 23 },
+      { row: 11, col: 23 },
+      { row: 11, col: 21 },
+      { row: 13, col: 21 },
+      { row: 13, col: 18 },
+      { row: 11, col: 18 },
+      { row: 11, col: 10 },
+      { row: 13, col: 10 },
+      { row: 13, col: 4 },
+      { row: 10, col: 4 },
+      { row: 10, col: 23 },
+    ]),
+    hints: [
+      '이번 열쇠는 내부를 채우지 않고 바깥 테두리를 따라가는 픽셀아트예요.',
+      '왼쪽 네모 고리는 열쇠 손잡이, 오른쪽 긴 선은 열쇠 몸통입니다.',
+      '오른쪽 아래로 꺾이는 부분은 열쇠 이빨이니 방향이 바뀌는 지점을 잘 확인하세요.',
+    ],
+    maxMistakes: 6,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelPathStage({
+    id: 35,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '테두리 로봇 얼굴',
+    description: '로봇 얼굴의 외곽선, 안테나, 눈, 입을 선으로 따라가며 완성합니다.',
+    concept: 'FOR + IF로 특징선 그리기',
+    difficulty: '어려움',
+    rows: 24,
+    cols: 24,
+    targetImageName: '테두리 로봇 얼굴',
+    targetColor: '#94a3b8',
+    codeMode: 'pathIf',
+    path: pathFromWaypoints([
+      { row: 4, col: 12 },
+      { row: 2, col: 12 },
+      { row: 2, col: 13 },
+      { row: 4, col: 13 },
+      { row: 4, col: 18 },
+      { row: 6, col: 18 },
+      { row: 6, col: 21 },
+      { row: 9, col: 21 },
+      { row: 9, col: 18 },
+      { row: 19, col: 18 },
+      { row: 19, col: 6 },
+      { row: 9, col: 6 },
+      { row: 9, col: 3 },
+      { row: 6, col: 3 },
+      { row: 6, col: 6 },
+      { row: 4, col: 6 },
+      { row: 4, col: 18 },
+      { row: 8, col: 18 },
+      { row: 8, col: 15 },
+      { row: 10, col: 15 },
+      { row: 10, col: 17 },
+      { row: 8, col: 17 },
+      { row: 8, col: 9 },
+      { row: 10, col: 9 },
+      { row: 10, col: 7 },
+      { row: 8, col: 7 },
+      { row: 8, col: 9 },
+      { row: 15, col: 9 },
+      { row: 15, col: 15 },
+      { row: 17, col: 15 },
+      { row: 17, col: 9 },
+      { row: 15, col: 9 },
+    ]),
+    hints: [
+      '이번 로봇은 얼굴을 채우는 문제가 아니라 외곽선과 표정을 그리는 문제예요.',
+      '양쪽 귀, 위쪽 안테나, 눈, 입이 어느 순서로 이어지는지 확인하세요.',
+      'IF PATH IS OPEN은 다음 칸으로 갈 수 있는지 확인한 뒤 이동합니다.',
+    ],
+    maxMistakes: 7,
+    checkpointMode: 'resetToStart',
+  }),
+  createStageFromPathWithCode({
+    id: 37,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '테두리 트로피',
+    description: '트로피의 손잡이, 컵, 목, 받침을 테두리 중심으로 완성합니다.',
+    concept: 'FOR + IF + ELSE로 아이콘 테두리 읽기',
+    difficulty: '매우 어려움',
+    rows: 24,
+    cols: 24,
+    targetImageName: '테두리 트로피',
+    targetColor: '#facc15',
+    path: pathFromWaypoints([
+      { row: 5, col: 6 },
+      { row: 5, col: 18 },
+      { row: 7, col: 18 },
+      { row: 7, col: 21 },
+      { row: 12, col: 21 },
+      { row: 12, col: 18 },
+      { row: 14, col: 18 },
+      { row: 14, col: 15 },
+      { row: 17, col: 15 },
+      { row: 17, col: 18 },
+      { row: 20, col: 18 },
+      { row: 20, col: 6 },
+      { row: 17, col: 6 },
+      { row: 17, col: 9 },
+      { row: 14, col: 9 },
+      { row: 14, col: 6 },
+      { row: 12, col: 6 },
+      { row: 12, col: 3 },
+      { row: 7, col: 3 },
+      { row: 7, col: 6 },
+      { row: 5, col: 6 },
+      { row: 5, col: 12 },
+      { row: 14, col: 12 },
+    ]),
+    code: [
+      f(10, 's37-cup-top-a', [m('right', 's37-cup-top-a-move')], '트로피 컵 윗줄 채우기'),
+      f(2, 's37-cup-top-b', [m('right', 's37-cup-top-b-move')], '오른쪽 끝까지 이동'),
+      iff('frontIsWall', 'right', 's37-right-edge-turn', [m('down', 's37-right-edge-down')], [m('right', 's37-right-edge-right')], '오른쪽 벽이면 아래로'),
+      m('down', 's37-right-edge-down-more'),
+      f(3, 's37-right-handle-out', [m('right', 's37-right-handle-out-move')], '오른쪽 손잡이 바깥쪽'),
+      iff('frontIsWall', 'right', 's37-right-handle-turn', [m('down', 's37-right-handle-down')], [m('right', 's37-right-handle-right')], '손잡이 끝 벽이면 아래로'),
+      f(4, 's37-right-handle-side', [m('down', 's37-right-handle-side-move')], '오른쪽 손잡이 아래로'),
+      f(3, 's37-right-handle-in', [m('left', 's37-right-handle-in-move')], '컵 안쪽으로 돌아오기'),
+      f(2, 's37-cup-neck-down', [m('down', 's37-cup-neck-down-move')], '컵에서 목으로'),
+      f(3, 's37-neck-left', [m('left', 's37-neck-left-move')], '목 윗부분 왼쪽'),
+      f(3, 's37-neck-down', [m('down', 's37-neck-down-move')], '목 아래로'),
+      f(3, 's37-base-right-top', [m('right', 's37-base-right-top-move')], '받침 오른쪽'),
+      f(3, 's37-base-down', [m('down', 's37-base-down-move')], '받침 아래로'),
+      f(10, 's37-base-left-a', [m('left', 's37-base-left-a-move')], '받침 왼쪽으로'),
+      f(2, 's37-base-left-b', [m('left', 's37-base-left-b-move')], '왼쪽 끝까지'),
+      iff('frontIsWall', 'left', 's37-left-base-turn', [m('up', 's37-left-base-up')], [m('left', 's37-left-base-left')], '왼쪽 벽이면 위로'),
+      f(2, 's37-left-base-up-more', [m('up', 's37-left-base-up-more-move')], '왼쪽 받침 위로'),
+      f(3, 's37-neck-right', [m('right', 's37-neck-right-move')], '목으로 돌아오기'),
+      f(3, 's37-left-neck-up', [m('up', 's37-left-neck-up-move')], '컵 쪽으로 올라가기'),
+      f(3, 's37-left-cup-in', [m('left', 's37-left-cup-in-move')], '왼쪽 컵 안쪽'),
+      f(2, 's37-left-cup-up', [m('up', 's37-left-cup-up-move')], '컵 위쪽으로'),
+      f(3, 's37-left-handle-out', [m('left', 's37-left-handle-out-move')], '왼쪽 손잡이 바깥쪽'),
+      f(5, 's37-left-handle-up', [m('up', 's37-left-handle-up-move')], '왼쪽 손잡이 위로'),
+      iff('frontIsWall', 'up', 's37-left-handle-return', [m('right', 's37-left-handle-return-right')], [m('up', 's37-left-handle-return-up')], '위쪽 벽이면 오른쪽으로'),
+      f(2, 's37-left-handle-in', [m('right', 's37-left-handle-in-move')], '컵 왼쪽으로 돌아오기'),
+      f(2, 's37-left-cup-up-more', [m('up', 's37-left-cup-up-more-move')], '컵 윗줄로'),
+      f(6, 's37-center-line-right', [m('right', 's37-center-line-right-move')], '가운데 선으로 이동'),
+      f(9, 's37-center-line-down', [m('down', 's37-center-line-down-move')], '트로피 중심선'),
+    ],
+    walls: [
+      { row: 5, col: 19 },
+      { row: 7, col: 22 },
+      { row: 20, col: 5 },
+      { row: 6, col: 3 },
+    ],
+    hints: [
+      '트로피는 양쪽 손잡이와 가운데 컵, 아래 받침이 보여야 해요.',
+      'IF FRONT IS WALL은 지정한 방향의 다음 칸이 벽인지 확인하고, 벽이면 THEN 쪽 명령을 실행해요.',
+      '오른쪽 끝, 왼쪽 끝, 위쪽 끝에서 벽을 만나면 방향이 꺾이는지 확인해 보세요.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelPathStage({
+    id: 38,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '테두리 우주선',
+    description: '우주선의 몸체, 창문, 날개, 엔진 부분을 선으로 표현합니다.',
+    concept: 'FOR + IF + ELSE로 우주선 외곽선 그리기',
+    difficulty: '매우 어려움',
+    rows: 24,
+    cols: 28,
+    targetImageName: '테두리 우주선',
+    targetColor: '#38bdf8',
+    codeMode: 'ifElse',
+    path: pathFromWaypoints([
+      { row: 12, col: 3 },
+      { row: 10, col: 3 },
+      { row: 10, col: 6 },
+      { row: 8, col: 6 },
+      { row: 8, col: 10 },
+      { row: 6, col: 10 },
+      { row: 6, col: 18 },
+      { row: 8, col: 18 },
+      { row: 8, col: 22 },
+      { row: 10, col: 22 },
+      { row: 10, col: 25 },
+      { row: 12, col: 25 },
+      { row: 14, col: 25 },
+      { row: 14, col: 22 },
+      { row: 16, col: 22 },
+      { row: 16, col: 18 },
+      { row: 18, col: 18 },
+      { row: 18, col: 10 },
+      { row: 16, col: 10 },
+      { row: 16, col: 6 },
+      { row: 14, col: 6 },
+      { row: 14, col: 3 },
+      { row: 12, col: 3 },
+      { row: 12, col: 12 },
+      { row: 10, col: 12 },
+      { row: 10, col: 16 },
+      { row: 14, col: 16 },
+      { row: 14, col: 12 },
+      { row: 12, col: 12 },
+      { row: 18, col: 12 },
+      { row: 21, col: 10 },
+      { row: 21, col: 18 },
+      { row: 18, col: 16 },
+    ]),
+    hints: [
+      '우주선은 외곽선이 먼저 보이고 가운데 창문과 아래 엔진이 이어져요.',
+      '날개처럼 튀어나온 좌우 부분을 찾으면 전체 모양을 이해하기 쉬워요.',
+      '긴 선보다 방향이 자주 바뀌는 지점을 조심해서 입력하세요.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'resetToStart',
+  }),
+  createPixelPathStage({
+    id: 39,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '테두리 보스 얼굴',
+    description: '뿔, 얼굴 외곽, 눈, 입을 색상 조건 IF로 따라가며 완성합니다.',
+    concept: '색상 조건 IF + 얼굴 특징선',
+    difficulty: '최종 문제',
+    rows: 24,
+    cols: 24,
+    targetImageName: '테두리 보스 얼굴',
+    targetColor: '#ef4444',
+    codeMode: 'colorIf',
+    path: pathFromWaypoints([
+      { row: 7, col: 6 },
+      { row: 4, col: 6 },
+      { row: 4, col: 3 },
+      { row: 8, col: 3 },
+      { row: 8, col: 6 },
+      { row: 6, col: 6 },
+      { row: 6, col: 18 },
+      { row: 8, col: 18 },
+      { row: 8, col: 21 },
+      { row: 4, col: 21 },
+      { row: 4, col: 18 },
+      { row: 7, col: 18 },
+      { row: 18, col: 18 },
+      { row: 18, col: 16 },
+      { row: 21, col: 16 },
+      { row: 21, col: 8 },
+      { row: 18, col: 8 },
+      { row: 18, col: 6 },
+      { row: 7, col: 6 },
+      { row: 10, col: 8 },
+      { row: 10, col: 10 },
+      { row: 12, col: 10 },
+      { row: 12, col: 8 },
+      { row: 10, col: 8 },
+      { row: 10, col: 14 },
+      { row: 10, col: 16 },
+      { row: 12, col: 16 },
+      { row: 12, col: 14 },
+      { row: 10, col: 14 },
+      { row: 15, col: 9 },
+      { row: 15, col: 15 },
+      { row: 17, col: 15 },
+      { row: 17, col: 9 },
+      { row: 15, col: 9 },
+    ]),
+    hints: [
+      '보스 얼굴은 양쪽 뿔, 눈, 입이 보이면 훨씬 알아보기 쉬워요.',
+      '색상 조건 IF는 다음 칸 색을 확인하고 맞으면 THEN 방향으로 이동합니다.',
+      '얼굴 외곽선을 먼저 따라간 뒤 눈과 입을 그리는 흐름을 떠올려 보세요.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'failImmediately',
+  }),
+  createPixelPathStage({
+    id: 40,
+    chapter: 'Chapter 6. 대형 픽셀 아이콘 완성 심화',
+    title: '테두리 최종 별',
+    description: '별의 다섯 방향 끝점을 테두리로 따라가며 최종 아이콘을 완성합니다.',
+    concept: '최종 색상 조건 테두리 픽셀아트',
+    difficulty: '최종 문제',
+    rows: 24,
+    cols: 24,
+    targetImageName: '테두리 최종 별',
+    targetColor: '#facc15',
+    codeMode: 'colorIf',
+    path: pathFromWaypoints([
+      { row: 3, col: 12 },
+      { row: 6, col: 13 },
+      { row: 6, col: 14 },
+      { row: 8, col: 14 },
+      { row: 8, col: 21 },
+      { row: 10, col: 21 },
+      { row: 10, col: 16 },
+      { row: 12, col: 16 },
+      { row: 12, col: 15 },
+      { row: 18, col: 19 },
+      { row: 20, col: 19 },
+      { row: 20, col: 17 },
+      { row: 16, col: 13 },
+      { row: 21, col: 13 },
+      { row: 21, col: 11 },
+      { row: 16, col: 11 },
+      { row: 20, col: 7 },
+      { row: 20, col: 5 },
+      { row: 18, col: 5 },
+      { row: 12, col: 9 },
+      { row: 12, col: 8 },
+      { row: 10, col: 8 },
+      { row: 10, col: 3 },
+      { row: 8, col: 3 },
+      { row: 8, col: 10 },
+      { row: 6, col: 10 },
+      { row: 6, col: 11 },
+      { row: 3, col: 12 },
+      { row: 12, col: 12 },
+    ]),
+    hints: [
+      '최종 별은 내부를 채우는 대신 별의 뾰족한 끝을 테두리로 따라갑니다.',
+      '오른쪽, 아래쪽, 왼쪽으로 크게 꺾이는 지점이 별의 꼭짓점이에요.',
+      '마지막에는 가운데로 돌아오며 별 모양이 정리됩니다.',
+    ],
+    maxMistakes: 8,
+    checkpointMode: 'failImmediately',
+  }),
+];
+
+function applyStageCorrections(sourceStages: Stage[], corrections: Stage[]): Stage[] {
+  const correctionById = new Map(corrections.map((stage) => [stage.id, stage]));
+  return sourceStages.map((stage) => correctionById.get(stage.id) ?? stage);
+}
+
+export const stages: Stage[] = applyStageCorrections(
+  [...baseStages, ...advancedStageReplacements, ...pixelIconStages],
+  pixelIconStageCorrections,
+);

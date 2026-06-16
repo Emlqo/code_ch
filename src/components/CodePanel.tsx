@@ -195,12 +195,10 @@ export function CodePanel({
   conditionEvaluations = [],
   enableLineHighlight = false,
 }: CodePanelProps) {
-  void enableLineHighlight;
-
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const lineElementRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lines = formatCodeForDisplay(code, codeDisplayMode);
-  const showExecutionHighlight = false;
+  const showExecutionHighlight = enableLineHighlight;
   const panelTitle = codeDisplayMode === 'cStyle' ? 'C언어 느낌 코드' : '한글 블록 코드';
   const panelEyebrow = codeDisplayMode === 'cStyle' ? 'C Style Code' : 'Block Code';
   const currentLineText =

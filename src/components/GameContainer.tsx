@@ -150,6 +150,7 @@ export function GameContainer() {
       onSelectStage={setSelectedStageId}
       onStageClear={handleStageClear}
       stages={orderedStages}
+      allowAutoPlay={gameBackScreen === 'adminPage'}
     />
   );
 }

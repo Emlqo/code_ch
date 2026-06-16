@@ -22,9 +22,11 @@ interface GameLayoutProps {
   onBackToStageSelect: () => void;
   onSelectStage: (stageId: number) => void;
   onStageClear: (stageId: number, stars: number, mistakes: number, bestCombo: number) => void;
+  allowAutoPlay?: boolean;
 }
 
 const inputLockMs = 170;
+const autoPlayDelayMs = 360;
 const hintOptions = {
   penaltyEnabled: false,
 };
@@ -75,6 +77,7 @@ export function GameLayout({
   onBackToStageSelect,
   onSelectStage,
   onStageClear,
+  allowAutoPlay = false,
 }: GameLayoutProps) {
   const stageIndex = Math.max(
     stages.findIndex((stage) => stage.id === selectedStageId),
@@ -104,12 +107,14 @@ export function GameLayout({
   const [hintCount, setHintCount] = useState(0);
   const [hintNotice, setHintNotice] = useState('');
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
   const [scoreDelta, setScoreDelta] = useState<number | null>(null);
 
   const inputLockedRef = useRef(false);
   const lockTimerRef = useRef<number | null>(null);
   const errorTimerRef = useRef<number | null>(null);
   const scoreTimerRef = useRef<number | null>(null);
+  const autoPlayTimerRef = useRef<number | null>(null);
 
   const clearTransientState = useCallback(() => {
     setErrorCommandIndex(null);
@@ -119,6 +124,7 @@ export function GameLayout({
     setHintCount(0);
     setHintNotice('');
     setIsAnimating(false);
+    setIsAutoPlaying(false);
     setScoreDelta(null);
     inputLockedRef.current = false;
 
@@ -135,6 +141,11 @@ export function GameLayout({
     if (scoreTimerRef.current !== null) {
       window.clearTimeout(scoreTimerRef.current);
       scoreTimerRef.current = null;
+    }
+
+    if (autoPlayTimerRef.current !== null) {
+      window.clearTimeout(autoPlayTimerRef.current);
+      autoPlayTimerRef.current = null;
     }
   }, []);
 
@@ -161,6 +172,7 @@ export function GameLayout({
   const paintedPositions = useMemo(() => getPaintedPositionKeys(progress), [progress]);
   const paintedTargetCount = useMemo(() => countPaintedTargets(board), [board]);
   const targetCellCount = useMemo(() => countTargetCells(board), [board]);
+  const useBoardCamera = currentStage.board.length >= 27 || (currentStage.board[0]?.length ?? 0) >= 27;
 
   const lockInputBriefly = () => {
     inputLockedRef.current = true;
@@ -399,16 +411,46 @@ export function GameLayout({
     [currentCommand, currentStage, hintCount, onStageClear, parseResult, progress, totalCommands],
   );
 
+  const baseControlsDisabled = progress.status === 'success' || progress.status === 'failed' || !parseResult.success;
+  const controlsDisabled = baseControlsDisabled || isAutoPlaying;
+
+  useEffect(() => {
+    if (!isAutoPlaying) {
+      return undefined;
+    }
+
+    if (!allowAutoPlay || baseControlsDisabled || !currentCommand) {
+      setIsAutoPlaying(false);
+      return undefined;
+    }
+
+    autoPlayTimerRef.current = window.setTimeout(() => {
+      handleDirectionInput(currentCommand.direction);
+    }, autoPlayDelayMs);
+
+    return () => {
+      if (autoPlayTimerRef.current !== null) {
+        window.clearTimeout(autoPlayTimerRef.current);
+        autoPlayTimerRef.current = null;
+      }
+    };
+  }, [allowAutoPlay, baseControlsDisabled, currentCommand, handleDirectionInput, isAutoPlaying]);
+
   useEffect(() => {
     return () => clearTransientState();
   }, [clearTransientState]);
-
-  const controlsDisabled = progress.status === 'success' || progress.status === 'failed' || !parseResult.success;
 
   useKeyboardInput({
     disabled: controlsDisabled,
     onDirectionInput: handleDirectionInput,
   });
+
+  const startAutoPlayFromBeginning = () => {
+    resetStage();
+    window.setTimeout(() => {
+      setIsAutoPlaying(true);
+    }, 0);
+  };
 
   return (
     <main className="min-h-screen overflow-x-hidden px-3 py-4 text-slate-900 sm:px-6 sm:py-5 lg:px-8">
@@ -421,7 +463,27 @@ export function GameLayout({
           >
             스테이지 선택으로
           </button>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {allowAutoPlay ? (
+              <>
+                <button
+                  type="button"
+                  onClick={startAutoPlayFromBeginning}
+                  disabled={isAutoPlaying || !parseResult.success}
+                  className="pixel-button bg-emerald-500 text-sm hover:bg-emerald-400"
+                >
+                  모범답안 자동 실행
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAutoPlaying(false)}
+                  disabled={!isAutoPlaying}
+                  className="pixel-button text-sm"
+                >
+                  자동 실행 멈춤
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               onClick={() => onSelectStage(stages[Math.max(stageIndex - 1, 0)].id)}
@@ -464,6 +526,8 @@ export function GameLayout({
               paintedPositions={paintedPositions}
               colorCluePositions={colorCluePositions}
               isAnimating={isAnimating}
+              cameraMode={useBoardCamera}
+              cameraSize={useBoardCamera ? 15 : 9}
               isInputDisabled={controlsDisabled}
               onDirectionInput={handleDirectionInput}
             />
@@ -481,7 +545,7 @@ export function GameLayout({
               errorSourceLineId={errorSourceLineId}
               activeParentInfo={currentCommand?.parentInfo}
               conditionEvaluations={conditionEvaluations}
-              enableLineHighlight
+              enableLineHighlight={allowAutoPlay && isAutoPlaying}
             />
             <ResultPanel
               message={progress.message}
