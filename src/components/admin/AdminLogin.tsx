@@ -6,17 +6,44 @@ interface AdminLoginProps {
   onBackHome: () => void;
 }
 
-// 임시 관리자 비밀번호입니다. 보안 목적이 아니라 관리자 페이지 구조 확인용 하드코딩입니다.
-const temporaryAdminPassword = '0327';
+// 긴급 패치: 평문 비밀번호는 클라이언트 코드에 보관하지 않고 SHA-256 해시만 비교합니다.
+// 프론트 단독 검증은 완전한 보안이 아니므로 이후 Firebase Auth 또는 서버 검증으로 교체해야 합니다.
+const adminPasswordHash = 'fbf99112d320a8290abbeaa0975479ae10ee252ceac1953717b87e06e944a50c';
+
+async function createSha256Hash(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function timingSafeEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  let mismatch = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+
+  return mismatch === 0;
+}
 
 export function AdminLogin({ onLoginSuccess, onBackHome }: AdminLoginProps) {
   const [password, setPassword] = useState('');
   const [status, setStatus] = useState<AdminLoginStatus>('idle');
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (password === temporaryAdminPassword) {
+    const inputHash = await createSha256Hash(password);
+
+    if (timingSafeEqual(inputHash, adminPasswordHash)) {
+      setPassword('');
       setStatus('idle');
       onLoginSuccess();
       return;
