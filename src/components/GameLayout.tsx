@@ -214,12 +214,16 @@ export function GameLayout({
   };
 
   const moveToNextStage = useCallback(() => {
+    if (!allowAutoPlay && progress.status !== 'success') {
+      return;
+    }
+
     const nextStage = stages[stageIndex + 1];
 
     if (nextStage) {
       onSelectStage(nextStage.id);
     }
-  }, [onSelectStage, stageIndex]);
+  }, [allowAutoPlay, onSelectStage, progress.status, stageIndex]);
 
   const handleRequestHint = useCallback(() => {
     setRevealedHintCount((currentCount) => {
@@ -495,7 +499,7 @@ export function GameLayout({
             <button
               type="button"
               onClick={moveToNextStage}
-              disabled={stageIndex === stages.length - 1}
+              disabled={stageIndex === stages.length - 1 || (!allowAutoPlay && progress.status !== 'success')}
               className="pixel-button text-sm"
             >
               다음
